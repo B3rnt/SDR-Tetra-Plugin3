@@ -17,6 +17,8 @@ namespace SDRSharp.Tetra
     public unsafe partial class TetraPanel : UserControl
     {
         private const float TwoPi = (float)(Math.PI * 2.0);
+        private long _lastUiFrequencyHz = -1;
+
         private const float Pi = (float)Math.PI;
         private const float PiDivTwo = (float)(Math.PI / 2.0);
         private const float PiDivFor = (float)(Math.PI / 4.0);
@@ -957,6 +959,21 @@ namespace SDRSharp.Tetra
 
         private void MarkerTimer_Tick(object sender, EventArgs e)
         {
+// Reset UI state when tuning to a new frequency (prevents showing MCCH/SCCH from previous carrier)
+long freqHz = _controlInterface != null ? _controlInterface.Frequency : 0;
+if (_lastUiFrequencyHz < 0)
+{
+    _lastUiFrequencyHz = freqHz;
+}
+else if (Math.Abs(freqHz - _lastUiFrequencyHz) > 100) // >100 Hz change = retune
+{
+    ResetDecoder();
+    TetraRuntime.NumberOfCommonSC = -1;
+    _lastUiFrequencyHz = freqHz;
+    UpdateTimeslotRoleLabels();
+}
+
+
             if (_displayBuffer != null)
             {
                 if (_dispayBufferReady)
@@ -1085,6 +1102,7 @@ namespace SDRSharp.Tetra
                 mncLabel.Text = "MNC:" + _currentCell_MNC.ToString();
                 colorLabel.Text = "Color:" + _currentCell_CC.ToString();
                 connectLabel.Visible = _decoder.BurstReceived;
+                connectLabel.Text = string.Format("Received  {0:0.00}% [{1}]", _decoder.Mer, _currentCell_Carrier);
                 laLabel.Text = "LA:" + _currentCell_LA.ToString();
                 mainCarrierLabel.Text = _mainCell_Carrier.ToString();
                 mainFrequencyLinkLabel.Text = string.Format("{0:0,0.000###} MHz", _mainCell_Frequency * 0.000001m);
@@ -1189,26 +1207,49 @@ namespace SDRSharp.Tetra
             }
         }
 
+
 private void UpdateTimeslotRoleLabels()
 {
-    // SDRtetra-style labeling:
+    // Mirror SDRtetra style:
     // TS1 = MCCH
-    // TS2..TS(1+N) = SCCH 1..N where N = NumberOfCommonSC from SYSINFO
+    // TS2..TS(1+NumberOfCommonSC) = SCCH1..N (from SYSINFO)
     // Others = ---
-    // If slot is active with traffic, show TCH.
-    int n = TetraRuntime.NumberOfCommonSC;
+    // If a slot is active => show TCH (and show carrier in ISSI column as cX)
 
-    string r1 = GetRoleText(1, n, _ch1IsActive);
-    string r2 = GetRoleText(2, n, _ch2IsActive);
-    string r3 = GetRoleText(3, n, _ch3IsActive);
-    string r4 = GetRoleText(4, n, _ch4IsActive);
+    int nScch = TetraRuntime.NumberOfCommonSC;
+    if (nScch < 0) nScch = 0;
 
-    // Put the role inside the visible radio text so it always shows even on narrow panels.
-    ch1RadioButton.Text = "TS1: " + r1;
-    ch2RadioButton.Text = "TS2: " + r2;
-    ch3RadioButton.Text = "TS3: " + r3;
-    ch4RadioButton.Text = "TS4: " + r4;
+    string RoleForTs(int ts)
+    {
+        if (ts == 1) return "MCCH";
+        if (nScch > 0 && ts >= 2 && ts <= (1 + nScch)) return "SCCH" + (ts - 1);
+        return "---";
+    }
+
+    string role1 = _ch1IsActive ? "TCH" : RoleForTs(1);
+    string role2 = _ch2IsActive ? "TCH" : RoleForTs(2);
+    string role3 = _ch3IsActive ? "TCH" : RoleForTs(3);
+    string role4 = _ch4IsActive ? "TCH" : RoleForTs(4);
+
+    // Always keep radio text short so it fits in narrow panels
+    ch1RadioButton.Text = "Timeslot 1";
+    ch2RadioButton.Text = "Timeslot 2";
+    ch3RadioButton.Text = "Timeslot 3";
+    ch4RadioButton.Text = "Timeslot 4";
+
+    // GSSI column (label6-9) shows MCCH/SCCH/TCH/---
+    label6.Text = role1;
+    label7.Text = role2;
+    label8.Text = role3;
+    label9.Text = role4;
+
+    // ISSI column (label1-4) shows carrier when active (like SDRtetra's c0)
+    label1.Text = _ch1IsActive ? ("c" + _currentCell_Carrier) : string.Empty;
+    label2.Text = _ch2IsActive ? ("c" + _currentCell_Carrier) : string.Empty;
+    label3.Text = _ch3IsActive ? ("c" + _currentCell_Carrier) : string.Empty;
+    label4.Text = _ch4IsActive ? ("c" + _currentCell_Carrier) : string.Empty;
 }
+
 
 private static string GetRoleText(int timeslot, int nCommonSc, bool isActive)
 {
