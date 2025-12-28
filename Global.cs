@@ -5,6 +5,15 @@ using System.Runtime.CompilerServices;
 
 namespace SDRSharp.Tetra
 {
+    /// <summary>
+    /// Runtime cache for values broadcast in SYSINFO (MAC) but used when logging
+    /// other layers (e.g. MM). SDRtetra prints a cached LA for MM lines.
+    /// </summary>
+    public static class TetraRuntime
+    {
+        public static int CurrentLocationArea = -1;
+    }
+
     public enum GlobalNames
     {
         Data_Separator = 0,
@@ -304,8 +313,12 @@ namespace SDRSharp.Tetra
         Group_identity_report,
         Group_identity_acknowledgement_request,
         Group_identity_accept_reject,
-        Group_identity_attach_detach_mode,        CCK_id,
+        Group_identity_attach_detach_mode,
+        CCK_id,
         Authentication_status,
+        // Internal helper flags (safe to add at end of enum)
+        GSSI_verified,
+        ITSI_attach,
         End // Always must be here
 
     }
