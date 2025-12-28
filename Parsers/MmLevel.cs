@@ -211,7 +211,7 @@ namespace SDRSharp.Tetra
 
         /// <summary>
         /// Decode Location Update Accept “extensions”.
-        /// This network encodes the GSSI nibble-shifted (4-bit) before the byte pattern 86 84 8D 40.
+        /// This network encodes the GSSI nibble-shifted (4-bit) right before the byte pattern ?? 84 8D 40.
         /// We recover from that pattern (authoritative). If not found, we fall back to GI-list decoding.
         /// </summary>
         private static int ParseLocationUpdateAcceptExtensions(LogicChannel channelData, int offset, ReceivedData result)
@@ -225,7 +225,7 @@ namespace SDRSharp.Tetra
                 int groupIdentityLocAccept = TetraUtils.BitsToInt32(channelData.Ptr, offset, 4);
                 offset += 4;
 
-                // IMPORTANT: 6 bits (not 2)
+                // IMPORTANT: 6 bits
                 int defaultLifetime = TetraUtils.BitsToInt32(channelData.Ptr, offset, 6);
                 offset += 6;
 
@@ -238,7 +238,7 @@ namespace SDRSharp.Tetra
                     return offset;
                 }
 
-                // Keep a byte-aligned fallback candidate from GI-list (in case pattern recover fails)
+                // Fallback candidate from GI-list (only used if pattern recover fails)
                 int giListCandidate = -1;
 
                 while (offset + 2 <= channelData.Length)
@@ -252,58 +252,43 @@ namespace SDRSharp.Tetra
 
                     if (t == 0)
                     {
-                        // 24-bit Group Identity (byte-aligned in our bitstream representation)
                         if (offset + 24 > channelData.Length) break;
-
                         int gssi = TetraUtils.BitsToInt32(channelData.Ptr, offset, 24);
                         offset += 24;
 
-                        if (giListCandidate < 0)
-                            giListCandidate = gssi;
-
-                        if (result.Value(GlobalNames.MM_vGSSI) <= 0)
-                            result.SetValue(GlobalNames.MM_vGSSI, gssi);
+                        if (giListCandidate < 0) giListCandidate = gssi;
+                        if (result.Value(GlobalNames.MM_vGSSI) <= 0) result.SetValue(GlobalNames.MM_vGSSI, gssi);
                     }
                     else if (t == 1)
                     {
-                        // 24-bit GI + extra 24 bits
                         if (offset + 48 > channelData.Length) break;
-
                         int gssi = TetraUtils.BitsToInt32(channelData.Ptr, offset, 24);
                         offset += 24;
 
-                        if (giListCandidate < 0)
-                            giListCandidate = gssi;
-
-                        if (result.Value(GlobalNames.MM_vGSSI) <= 0)
-                            result.SetValue(GlobalNames.MM_vGSSI, gssi);
+                        if (giListCandidate < 0) giListCandidate = gssi;
+                        if (result.Value(GlobalNames.MM_vGSSI) <= 0) result.SetValue(GlobalNames.MM_vGSSI, gssi);
 
                         offset += 24; // skip extra 24
                     }
                     else if (t == 2)
                     {
-                        // vGSSI (24 bits)
                         if (offset + 24 > channelData.Length) break;
-
                         int vgssi = TetraUtils.BitsToInt32(channelData.Ptr, offset, 24);
                         offset += 24;
 
                         result.SetValue(GlobalNames.MM_vGSSI, vgssi);
-
-                        if (giListCandidate < 0)
-                            giListCandidate = vgssi;
+                        if (giListCandidate < 0) giListCandidate = vgssi;
                     }
                     else
                     {
-                        // Unknown type
                         break;
                     }
                 }
 
-                // Scan CCK (many networks include 64 here)
+                // Scan CCK
                 ScanForCck64(channelData, offset, result);
 
-                // AUTHORITATIVE: recover nibble-shifted GSSI before 86 84 8D 40
+                // AUTHORITATIVE: recover nibble-shifted GSSI before ?? 84 8D 40
                 if (TryRecoverNibbleShiftedGssiBefore848D40(channelData, out int recoveredGssi))
                 {
                     result.SetValue(GlobalNames.GSSI, recoveredGssi);
@@ -311,12 +296,11 @@ namespace SDRSharp.Tetra
                 }
                 else if (giListCandidate > 0)
                 {
-                    // Fallback if pattern was not found
                     result.SetValue(GlobalNames.GSSI, giListCandidate);
                     result.SetValue(GlobalNames.GSSI_verified, 1);
                 }
 
-                // ITSI attach heuristic: CCK_identifier 64 and no verified GSSI.
+                // ITSI attach heuristic
                 if (result.Value(GlobalNames.CCK_id) == 64 && result.Value(GlobalNames.GSSI_verified) == 0)
                     result.SetValue(GlobalNames.ITSI_attach, 1);
 
@@ -332,7 +316,6 @@ namespace SDRSharp.Tetra
         {
             try
             {
-                // Wider scan window: CCK_id appears later in some LU accepts.
                 int scanEnd = Math.Min(channelData.Length - 8, offset + 192);
                 for (int i = offset; i <= scanEnd; i++)
                 {
@@ -351,8 +334,11 @@ namespace SDRSharp.Tetra
         }
 
         /// <summary>
-        /// Recover GSSI from nibble-shifted encoding right before the byte pattern 86 84 8D 40.
-        /// Example raw: ... 02 D5 1B 86 84 8D 40 ... => GSSI = 0x2D51B8.
+        /// Recover GSSI from nibble-shifted encoding right before the byte pattern ?? 84 8D 40.
+        /// Examples:
+        ///   ... 02 D5 1B 86 84 8D 40 ... => GSSI 0x2D51B8
+        ///   ... 06 A5 B1 86 84 8D 40 ... => GSSI 0x6A5B18
+        ///   ... 02 BA 5F 96 84 8D 40 ... => GSSI 0x2BA5F9
         /// </summary>
         private static bool TryRecoverNibbleShiftedGssiBefore848D40(LogicChannel channelData, out int gssi)
         {
@@ -362,22 +348,20 @@ namespace SDRSharp.Tetra
                 int lastByteStartBit = channelData.Length - 8;
                 for (int bit = 0; bit <= lastByteStartBit - (8 * 4); bit += 8)
                 {
-                    byte b0 = ReadByte(channelData, bit + 0);
-                    byte b1 = ReadByte(channelData, bit + 8);
-                    byte b2 = ReadByte(channelData, bit + 16);
-                    byte b3 = ReadByte(channelData, bit + 24);
+                    byte b0 = ReadByte(channelData, bit + 0);   // variable (contains high nibble used)
+                    byte b1 = ReadByte(channelData, bit + 8);   // 0x84
+                    byte b2 = ReadByte(channelData, bit + 16);  // 0x8D
+                    byte b3 = ReadByte(channelData, bit + 24);  // 0x40
 
-                    if (b0 == 0x86 && b1 == 0x84 && b2 == 0x8D && b3 == 0x40)
+                    if (b1 == 0x84 && b2 == 0x8D && b3 == 0x40)
                     {
-                        // Need 3 bytes before 0x86
-                        if (bit < 24) return false;
+                        if (bit < 24) return false; // need 3 bytes before b0
 
-                        byte p3 = ReadByte(channelData, bit - 24); // e.g. 0x02 / 0x06
-                        byte p2 = ReadByte(channelData, bit - 16); // e.g. 0xD5 / 0xA5
-                        byte p1 = ReadByte(channelData, bit - 8);  // e.g. 0x1B / 0xB1
-                        byte p0 = b0;                              // 0x86
+                        byte p3 = ReadByte(channelData, bit - 24);
+                        byte p2 = ReadByte(channelData, bit - 16);
+                        byte p1 = ReadByte(channelData, bit - 8);
+                        byte p0 = b0;
 
-                        // GSSI = [low nibble p3][p2][p1][high nibble p0]
                         int value =
                             ((p3 & 0x0F) << 20) |
                             (p2 << 12) |
@@ -390,6 +374,7 @@ namespace SDRSharp.Tetra
                 }
             }
             catch { }
+
             return false;
         }
 
