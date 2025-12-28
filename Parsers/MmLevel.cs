@@ -1,4 +1,3 @@
-```csharp
 using System;
 using System.Text;
 
@@ -639,4 +638,3 @@ namespace SDRSharp.Tetra
         }
     }
 }
-```
