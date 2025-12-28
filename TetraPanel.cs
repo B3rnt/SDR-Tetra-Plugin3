@@ -934,14 +934,6 @@ namespace SDRSharp.Tetra
 
                 _sysInfo.TryGetValue(GlobalNames.Location_Area, ref _currentCell_LA);
 
-
-                // Cache SYSINFO values used by the GUI (SDRtetra-style).
-                TetraRuntime.CurrentLocationArea = _currentCell_LA;
-                var nCommonSc = -1;
-                if (_sysInfo.TryGetValue(GlobalNames.NumberOfCommon_SC, ref nCommonSc))
-                {
-                    TetraRuntime.NumberOfCommonSC = nCommonSc;
-                }
                 var band = 0;
                 var offset = 0;
                 var carrier = 0;
@@ -992,7 +984,6 @@ namespace SDRSharp.Tetra
             label8.Text = (_currentCellLoad[1].Type == 1 ? "g " : "") + _currentCellLoad[1].GroupName;
             label7.Text = (_currentCellLoad[2].Type == 1 ? "g " : "") + _currentCellLoad[2].GroupName;
             label6.Text = (_currentCellLoad[3].Type == 1 ? "g " : "") + _currentCellLoad[3].GroupName;
-
 
             UpdateTimeslotRoleLabels();
 
@@ -1198,38 +1189,38 @@ namespace SDRSharp.Tetra
 
 private void UpdateTimeslotRoleLabels()
 {
-    // Mirror SDRtetra's MCCH/SCCH labeling:
+    // SDRtetra-style labeling:
     // TS1 = MCCH
     // TS2..TS(1+N) = SCCH 1..N where N = NumberOfCommonSC from SYSINFO
     // Others = ---
-    // When a slot is actively used for traffic, show TCH.
-    var n = TetraRuntime.NumberOfCommonSC;
-    ch1RoleLabel.Text = GetRoleText(1, n, _ch1IsActive);
-    ch2RoleLabel.Text = GetRoleText(2, n, _ch2IsActive);
-    ch3RoleLabel.Text = GetRoleText(3, n, _ch3IsActive);
-    ch4RoleLabel.Text = GetRoleText(4, n, _ch4IsActive);
+    // If slot is active with traffic, show TCH.
+    int n = TetraRuntime.NumberOfCommonSC;
+
+    string r1 = GetRoleText(1, n, _ch1IsActive);
+    string r2 = GetRoleText(2, n, _ch2IsActive);
+    string r3 = GetRoleText(3, n, _ch3IsActive);
+    string r4 = GetRoleText(4, n, _ch4IsActive);
+
+    // Put the role inside the visible radio text so it always shows even on narrow panels.
+    ch1RadioButton.Text = "Timeslot 1  " + r1;
+    ch2RadioButton.Text = "Timeslot 2  " + r2;
+    ch3RadioButton.Text = "Timeslot 3  " + r3;
+    ch4RadioButton.Text = "Timeslot 4  " + r4;
 }
 
 private static string GetRoleText(int timeslot, int nCommonSc, bool isActive)
 {
     if (isActive)
-    {
         return "TCH";
-    }
 
     if (timeslot == 1)
-    {
         return "MCCH";
-    }
 
     if (nCommonSc > 0)
     {
-        var firstScchTs = 2;
-        var lastScchTs = 1 + nCommonSc;
-        if (timeslot >= firstScchTs && timeslot <= lastScchTs)
-        {
-            return "SCCH " + (timeslot - 1);
-        }
+        int lastScchTs = 1 + nCommonSc; // TS2..TS(lastScchTs)
+        if (timeslot >= 2 && timeslot <= lastScchTs)
+            return "SCCH" + (timeslot - 1);
     }
 
     return "---";

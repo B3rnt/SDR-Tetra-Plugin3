@@ -522,6 +522,15 @@ namespace SDRSharp.Tetra
                             TetraRuntime.CurrentLocationArea = la;
                     }
                     catch { }
+
+// Cache NumberOfCommon_SC globally (used for SCCH labeling in GUI)
+try
+{
+    int nsc = result.Value(GlobalNames.NumberOfCommon_SC);
+    if (nsc >= 0)
+        TetraRuntime.NumberOfCommonSC = nsc;
+}
+catch { }
                     break;
             }
 
