@@ -211,14 +211,14 @@ namespace SDRSharp.Tetra
         {
             try
             {
-                if (offset + 6 > channelData.Length)
+                if (offset + 10 > channelData.Length)   // 4 + 6 bits minimum
                     return offset;
 
                 int groupIdentityLocAccept = TetraUtils.BitsToInt32(channelData.Ptr, offset, 4);
                 offset += 4;
 
-                int defaultLifetime = TetraUtils.BitsToInt32(channelData.Ptr, offset, 2);
-                offset += 2;
+                int defaultLifetime = TetraUtils.BitsToInt32(channelData.Ptr, offset, 6);
+				offset += 6;
 
                 // SDRtetra: als GI extension niet actief is -> NIET verder proberen te “vinden”
                 // (anders pak je random bits als GSSI). Dit scenario is vaak ITSI attach.
