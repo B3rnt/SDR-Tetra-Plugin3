@@ -110,6 +110,10 @@ namespace SDRSharp.Tetra
         private int _resetCounter;
         private bool _writerBlocked;
 
+        private long _lastFrequencyHz = -1;
+        private int _lastCarrierIndex = 0;
+        private int _numCommonScchCached = -1;
+
         private const string DefaultLogEntryRules = "date + time + mcc + mnc + la + cc + carrier + slot + callid + type + from + to + encryption + duplex";
         private const string DefaultLogFileNameRules = "date \\ frequency \\ mcc \"_\" mnc \"_\" la";
         private const string DefaultLogSeparator = " ; ";
@@ -938,6 +942,11 @@ namespace SDRSharp.Tetra
 
                 _sysInfo.TryGetValue(GlobalNames.Location_Area, ref _currentCell_LA);
 
+                // Cache number of SCCH on MCCH (SDRtetra: NumOfSCCH_on_MCCH)
+                int nCommonSc = -1;
+                if (_sysInfo.TryGetValue(GlobalNames.NumberOfCommon_SC, ref nCommonSc))
+                    _numCommonScchCached = nCommonSc;
+
                 var band = 0;
                 var offset = 0;
                 var carrier = 0;
@@ -968,7 +977,7 @@ if (_lastUiFrequencyHz < 0)
 else if (Math.Abs(freqHz - _lastUiFrequencyHz) > 100) // >100 Hz change = retune
 {
     ResetDecoder();
-    TetraRuntime.NumberOfCommonSC = -1;
+    _numCommonScchCached = -1;
     _lastUiFrequencyHz = freqHz;
     UpdateTimeslotRoleLabels();
 }
@@ -1102,7 +1111,11 @@ else if (Math.Abs(freqHz - _lastUiFrequencyHz) > 100) // >100 Hz change = retune
                 mncLabel.Text = "MNC:" + _currentCell_MNC.ToString();
                 colorLabel.Text = "Color:" + _currentCell_CC.ToString();
                 connectLabel.Visible = _decoder.BurstReceived;
-                connectLabel.Text = string.Format("Received  {0:0.00}% [{1}]", _decoder.Mer, _currentCell_Carrier);
+                var carrierIndex = (_mainCell_Carrier >= 0 && _currentCell_Carrier >= 0) ? (_currentCell_Carrier - _mainCell_Carrier) : 0;
+                var receivedPct = 100.0f - _decoder.Mer;
+                if (receivedPct < 0) receivedPct = 0;
+                if (receivedPct > 100) receivedPct = 100;
+                connectLabel.Text = string.Format("Received  {0:0.00}% [{1}]", receivedPct, carrierIndex);
                 laLabel.Text = "LA:" + _currentCell_LA.ToString();
                 mainCarrierLabel.Text = _mainCell_Carrier.ToString();
                 mainFrequencyLinkLabel.Text = string.Format("{0:0,0.000###} MHz", _mainCell_Frequency * 0.000001m);
@@ -1209,47 +1222,66 @@ else if (Math.Abs(freqHz - _lastUiFrequencyHz) > 100) // >100 Hz change = retune
 
 
 private void UpdateTimeslotRoleLabels()
-{
-    // Mirror SDRtetra style:
-    // TS1 = MCCH
-    // TS2..TS(1+NumberOfCommonSC) = SCCH1..N (from SYSINFO)
-    // Others = ---
-    // If a slot is active => show TCH (and show carrier in ISSI column as cX)
+        {
+            // SDRtetra behaviour:
+            // - Only show MCCH/SCCH mapping when we are tuned to the MAIN carrier (carrier index 0).
+            // - On non-main carriers, treat all timeslots as traffic (no MCCH/SCCH).
+            // - "Received" carrier index is (CurrentCarrier - MainCarrier).
+            // - Show "cX" in the ISSI column for traffic slots (like SDRtetra screenshot).
 
-    int nScch = TetraRuntime.NumberOfCommonSC;
-    if (nScch < 0) nScch = 0;
+            int carrierIndex = (_mainCell_Carrier >= 0 && _currentCell_Carrier >= 0) ? (_currentCell_Carrier - _mainCell_Carrier) : 0;
+            bool onMainCarrier = (carrierIndex == 0);
 
-    string RoleForTs(int ts)
-    {
-        if (ts == 1) return "MCCH";
-        if (nScch > 0 && ts >= 2 && ts <= (1 + nScch)) return "SCCH" + (ts - 1);
-        return "---";
-    }
+            int nScch = _numCommonScchCached;
+            if (nScch < 0) nScch = 0;
 
-    string role1 = _ch1IsActive ? "TCH" : RoleForTs(1);
-    string role2 = _ch2IsActive ? "TCH" : RoleForTs(2);
-    string role3 = _ch3IsActive ? "TCH" : RoleForTs(3);
-    string role4 = _ch4IsActive ? "TCH" : RoleForTs(4);
+            string RoleForTs(int ts)
+            {
+                if (!onMainCarrier)
+                    return "---";
 
-    // Always keep radio text short so it fits in narrow panels
-    ch1RadioButton.Text = "Timeslot 1";
-    ch2RadioButton.Text = "Timeslot 2";
-    ch3RadioButton.Text = "Timeslot 3";
-    ch4RadioButton.Text = "Timeslot 4";
+                if (ts == 1)
+                    return "MCCH";
 
-    // GSSI column (label6-9) shows MCCH/SCCH/TCH/---
-    label6.Text = role1;
-    label7.Text = role2;
-    label8.Text = role3;
-    label9.Text = role4;
+                if (nScch > 0 && ts >= 2 && ts <= (1 + nScch))
+                    return "SCCH " + (ts - 1);
 
-    // ISSI column (label1-4) shows carrier when active (like SDRtetra's c0)
-    label1.Text = _ch1IsActive ? ("c" + _currentCell_Carrier) : string.Empty;
-    label2.Text = _ch2IsActive ? ("c" + _currentCell_Carrier) : string.Empty;
-    label3.Text = _ch3IsActive ? ("c" + _currentCell_Carrier) : string.Empty;
-    label4.Text = _ch4IsActive ? ("c" + _currentCell_Carrier) : string.Empty;
-}
+                return "---";
+            }
 
+            string role1 = _ch1IsActive ? "TCH" : RoleForTs(1);
+            string role2 = _ch2IsActive ? "TCH" : RoleForTs(2);
+            string role3 = _ch3IsActive ? "TCH" : RoleForTs(3);
+            string role4 = _ch4IsActive ? "TCH" : RoleForTs(4);
+
+            // keep selection labels compact
+            ch1RadioButton.Text = "Timeslot 1";
+            ch2RadioButton.Text = "Timeslot 2";
+            ch3RadioButton.Text = "Timeslot 3";
+            ch4RadioButton.Text = "Timeslot 4";
+
+            // GSSI column (MCCH/SCCH/TCH/---)
+            label6.Text = role1;
+            label7.Text = role2;
+            label8.Text = role3;
+            label9.Text = role4;
+
+            // ISSI column shows carrier for traffic slots (and for active calls)
+            string carrierTag = "c" + carrierIndex;
+
+            bool TsIsTraffic(int ts)
+            {
+                if (!onMainCarrier) return true; // all slots are traffic-ish when not on main carrier
+                if (ts == 1) return false; // MCCH
+                if (nScch > 0 && ts >= 2 && ts <= (1 + nScch)) return false; // SCCH
+                return true; // remaining are traffic
+            }
+
+            label1.Text = (TsIsTraffic(1) ? carrierTag : string.Empty);
+            label2.Text = (TsIsTraffic(2) ? carrierTag : string.Empty);
+            label3.Text = (TsIsTraffic(3) ? carrierTag : string.Empty);
+            label4.Text = (TsIsTraffic(4) ? carrierTag : string.Empty);
+        }
 
 private static string GetRoleText(int timeslot, int nCommonSc, bool isActive)
 {
