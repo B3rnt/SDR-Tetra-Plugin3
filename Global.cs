@@ -12,8 +12,7 @@ namespace SDRSharp.Tetra
     public static class TetraRuntime
     {
         public static int CurrentLocationArea = -1;
-    
-        public static int NumberOfCommonSC = 0;
+        public static int NumberOfCommonSC = -1;
     }
 
     public enum GlobalNames

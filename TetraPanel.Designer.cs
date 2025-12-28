@@ -62,15 +62,13 @@
             this.label1 = new System.Windows.Forms.Label();
             this.autoCheckBox = new System.Windows.Forms.CheckBox();
             this.ch4RadioButton = new System.Windows.Forms.RadioButton();
-            this.ch3RadioButton = new System.Windows.Forms.RadioButton();
-            this.ch2RadioButton = new System.Windows.Forms.RadioButton();
-            this.ch1RadioButton = new System.Windows.Forms.RadioButton();
             this.ch1RoleLabel = new System.Windows.Forms.Label();
             this.ch2RoleLabel = new System.Windows.Forms.Label();
             this.ch3RoleLabel = new System.Windows.Forms.Label();
             this.ch4RoleLabel = new System.Windows.Forms.Label();
-            this.gssiHeaderLabel = new System.Windows.Forms.Label();
-            this.issiHeaderLabel = new System.Windows.Forms.Label();
+            this.ch3RadioButton = new System.Windows.Forms.RadioButton();
+            this.ch2RadioButton = new System.Windows.Forms.RadioButton();
+            this.ch1RadioButton = new System.Windows.Forms.RadioButton();
             this.displayGroupBox = new System.Windows.Forms.GroupBox();
             this.display = new SDRSharp.Tetra.Display();
             this.enabledCheckBox = new System.Windows.Forms.CheckBox();
@@ -295,15 +293,13 @@
             this.groupBox1.Controls.Add(this.label1);
             this.groupBox1.Controls.Add(this.autoCheckBox);
             this.groupBox1.Controls.Add(this.ch4RadioButton);
-            this.groupBox1.Controls.Add(this.ch4RoleLabel);
-            this.groupBox1.Controls.Add(this.ch3RoleLabel);
-            this.groupBox1.Controls.Add(this.ch2RoleLabel);
-            this.groupBox1.Controls.Add(this.ch1RoleLabel);
-            this.groupBox1.Controls.Add(this.gssiHeaderLabel);
-            this.groupBox1.Controls.Add(this.issiHeaderLabel);
             this.groupBox1.Controls.Add(this.ch3RadioButton);
             this.groupBox1.Controls.Add(this.ch2RadioButton);
             this.groupBox1.Controls.Add(this.ch1RadioButton);
+            this.groupBox1.Controls.Add(this.ch1RoleLabel);
+            this.groupBox1.Controls.Add(this.ch2RoleLabel);
+            this.groupBox1.Controls.Add(this.ch3RoleLabel);
+            this.groupBox1.Controls.Add(this.ch4RoleLabel);
             this.groupBox1.Location = new System.Drawing.Point(5, 128);
             this.groupBox1.Name = "groupBox1";
             this.groupBox1.Size = new System.Drawing.Size(209, 136);
@@ -441,6 +437,17 @@
             this.ch4RadioButton.TabStop = true;
             this.ch4RadioButton.Text = "Timeslot 4";
             this.ch4RadioButton.UseVisualStyleBackColor = true;
+
+// 
+// ch4RoleLabel
+// 
+this.ch4RoleLabel.AutoSize = true;
+this.ch4RoleLabel.ForeColor = System.Drawing.Color.Lime;
+this.ch4RoleLabel.Location = new System.Drawing.Point(90, 96);
+this.ch4RoleLabel.Name = "ch4RoleLabel";
+this.ch4RoleLabel.Size = new System.Drawing.Size(27, 13);
+this.ch4RoleLabel.TabIndex = 83;
+this.ch4RoleLabel.Text = "---";
             this.ch4RadioButton.CheckedChanged += new System.EventHandler(this.Ch4RadioButton_CheckedChanged);
             // 
             // ch3RadioButton
@@ -453,6 +460,17 @@
             this.ch3RadioButton.TabStop = true;
             this.ch3RadioButton.Text = "Timeslot 3";
             this.ch3RadioButton.UseVisualStyleBackColor = true;
+
+// 
+// ch3RoleLabel
+// 
+this.ch3RoleLabel.AutoSize = true;
+this.ch3RoleLabel.ForeColor = System.Drawing.Color.Lime;
+this.ch3RoleLabel.Location = new System.Drawing.Point(90, 76);
+this.ch3RoleLabel.Name = "ch3RoleLabel";
+this.ch3RoleLabel.Size = new System.Drawing.Size(27, 13);
+this.ch3RoleLabel.TabIndex = 82;
+this.ch3RoleLabel.Text = "---";
             this.ch3RadioButton.CheckedChanged += new System.EventHandler(this.Ch3RadioButton_CheckedChanged);
             // 
             // ch2RadioButton
@@ -465,6 +483,17 @@
             this.ch2RadioButton.TabStop = true;
             this.ch2RadioButton.Text = "Timeslot 2";
             this.ch2RadioButton.UseVisualStyleBackColor = true;
+
+// 
+// ch2RoleLabel
+// 
+this.ch2RoleLabel.AutoSize = true;
+this.ch2RoleLabel.ForeColor = System.Drawing.Color.Lime;
+this.ch2RoleLabel.Location = new System.Drawing.Point(90, 56);
+this.ch2RoleLabel.Name = "ch2RoleLabel";
+this.ch2RoleLabel.Size = new System.Drawing.Size(27, 13);
+this.ch2RoleLabel.TabIndex = 81;
+this.ch2RoleLabel.Text = "---";
             this.ch2RadioButton.CheckedChanged += new System.EventHandler(this.Ch2RadioButton_CheckedChanged);
             // 
             // ch1RadioButton
@@ -477,77 +506,18 @@
             this.ch1RadioButton.TabStop = true;
             this.ch1RadioButton.Text = "Timeslot 1";
             this.ch1RadioButton.UseVisualStyleBackColor = true;
+
+// 
+// ch1RoleLabel
+// 
+this.ch1RoleLabel.AutoSize = true;
+this.ch1RoleLabel.ForeColor = System.Drawing.Color.Lime;
+this.ch1RoleLabel.Location = new System.Drawing.Point(90, 36);
+this.ch1RoleLabel.Name = "ch1RoleLabel";
+this.ch1RoleLabel.Size = new System.Drawing.Size(27, 13);
+this.ch1RoleLabel.TabIndex = 80;
+this.ch1RoleLabel.Text = "---";
             this.ch1RadioButton.CheckedChanged += new System.EventHandler(this.Ch1RadioButton_CheckedChanged);
-
-            // 
-            // ch4RoleLabel
-            // 
-            this.ch4RoleLabel.AutoSize = true;
-            this.ch4RoleLabel.ForeColor = System.Drawing.Color.Lime;
-            this.ch4RoleLabel.Location = new System.Drawing.Point(68, 106);
-            this.ch4RoleLabel.Name = "ch4RoleLabel";
-            this.ch4RoleLabel.Size = new System.Drawing.Size(16, 13);
-            this.ch4RoleLabel.TabIndex = 200;
-            this.ch4RoleLabel.Text = "---";
-
-            // 
-            // gssiHeaderLabel
-            // 
-            this.gssiHeaderLabel.AutoSize = true;
-            this.gssiHeaderLabel.ForeColor = System.Drawing.Color.Silver;
-            this.gssiHeaderLabel.Location = new System.Drawing.Point(68, 20);
-            this.gssiHeaderLabel.Name = "gssiHeaderLabel";
-            this.gssiHeaderLabel.Size = new System.Drawing.Size(31, 13);
-            this.gssiHeaderLabel.TabIndex = 201;
-            this.gssiHeaderLabel.Text = "GSSI";
-            // 
-            // issiHeaderLabel
-            // 
-            this.issiHeaderLabel.AutoSize = true;
-            this.issiHeaderLabel.ForeColor = System.Drawing.Color.Silver;
-            this.issiHeaderLabel.Location = new System.Drawing.Point(140, 20);
-            this.issiHeaderLabel.Name = "issiHeaderLabel";
-            this.issiHeaderLabel.Size = new System.Drawing.Size(28, 13);
-            this.issiHeaderLabel.TabIndex = 202;
-            this.issiHeaderLabel.Text = "ISSI";
-
-
-
-            // 
-            // ch3RoleLabel
-            // 
-            this.ch3RoleLabel.AutoSize = true;
-            this.ch3RoleLabel.ForeColor = System.Drawing.Color.Lime;
-            this.ch3RoleLabel.Location = new System.Drawing.Point(68, 83);
-            this.ch3RoleLabel.Name = "ch3RoleLabel";
-            this.ch3RoleLabel.Size = new System.Drawing.Size(16, 13);
-            this.ch3RoleLabel.TabIndex = 200;
-            this.ch3RoleLabel.Text = "---";
-
-
-            // 
-            // ch2RoleLabel
-            // 
-            this.ch2RoleLabel.AutoSize = true;
-            this.ch2RoleLabel.ForeColor = System.Drawing.Color.Lime;
-            this.ch2RoleLabel.Location = new System.Drawing.Point(68, 60);
-            this.ch2RoleLabel.Name = "ch2RoleLabel";
-            this.ch2RoleLabel.Size = new System.Drawing.Size(16, 13);
-            this.ch2RoleLabel.TabIndex = 200;
-            this.ch2RoleLabel.Text = "---";
-
-
-            // 
-            // ch1RoleLabel
-            // 
-            this.ch1RoleLabel.AutoSize = true;
-            this.ch1RoleLabel.ForeColor = System.Drawing.Color.Lime;
-            this.ch1RoleLabel.Location = new System.Drawing.Point(68, 37);
-            this.ch1RoleLabel.Name = "ch1RoleLabel";
-            this.ch1RoleLabel.Size = new System.Drawing.Size(16, 13);
-            this.ch1RoleLabel.TabIndex = 200;
-            this.ch1RoleLabel.Text = "---";
-
             // 
             // displayGroupBox
             // 
@@ -653,8 +623,6 @@
         private System.Windows.Forms.Label ch2RoleLabel;
         private System.Windows.Forms.Label ch3RoleLabel;
         private System.Windows.Forms.Label ch4RoleLabel;
-        private System.Windows.Forms.Label gssiHeaderLabel;
-        private System.Windows.Forms.Label issiHeaderLabel;
         private System.Windows.Forms.RadioButton ch3RadioButton;
         private System.Windows.Forms.RadioButton ch2RadioButton;
         private System.Windows.Forms.RadioButton ch1RadioButton;

@@ -522,17 +522,7 @@ namespace SDRSharp.Tetra
                             TetraRuntime.CurrentLocationArea = la;
                     }
                     catch { }
-                    
-
-                    // Cache NumberOfCommon_SC globally for GUI timeslot role labels (MCCH/SCCH mapping)
-                    try
-                    {
-                        int nsc = result.Value(GlobalNames.NumberOfCommon_SC);
-                        if (nsc >= 0 && nsc <= 3) // spec: 0..3 (=> SCCH1..SCCH3) typically
-                            TetraRuntime.NumberOfCommonSC = nsc;
-                    }
-                    catch { }
-break;
+                    break;
             }
 
             return offset;
