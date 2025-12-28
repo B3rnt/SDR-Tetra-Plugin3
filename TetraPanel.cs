@@ -1091,6 +1091,51 @@ namespace SDRSharp.Tetra
             }
         }
 
+        /// <summary>
+        /// Update the small "MCCH/SCCHx/TCH" labels next to TS1..TS4.
+        ///
+        /// We derive the number of SCCH from SYSINFO (MAC) field
+        /// "NumberOfCommon_SC" cached in <see cref="TetraRuntime.NumberOfCommonSC"/>.
+        /// Mapping (TMO, like SDRtetra):
+        ///   TS1 = MCCH
+        ///   TS2..TS(1+N) = SCCH1..SCCHN
+        ///   remaining TS = TCH
+        /// If a slot is currently active (traffic/call), we display TCH.
+        /// </summary>
+        private void UpdateTimeslotRoleLabels()
+        {
+            // -1 means "unknown yet" (no SYSINFO decoded). Default to 3 SCCH like many systems.
+            int nsc = TetraRuntime.NumberOfCommonSC;
+            if (nsc < 0) nsc = 3;
+            if (nsc > 3) nsc = 3;
+
+            string RoleForTs(int ts)
+            {
+                if (ts == 1) return "MCCH";
+                // TS2..TS(1+nsc)
+                if (ts >= 2 && ts <= 1 + nsc) return "SCCH" + (ts - 1);
+                return "TCH";
+            }
+
+            // Base roles from SYSINFO
+            string r1 = RoleForTs(1);
+            string r2 = RoleForTs(2);
+            string r3 = RoleForTs(3);
+            string r4 = RoleForTs(4);
+
+            // If the plugin considers a channel active, treat it as traffic.
+            if (_ch1IsActive) r1 = "TCH";
+            if (_ch2IsActive) r2 = "TCH";
+            if (_ch3IsActive) r3 = "TCH";
+            if (_ch4IsActive) r4 = "TCH";
+
+            // Update UI
+            if (ch1RoleLabel != null) ch1RoleLabel.Text = r1;
+            if (ch2RoleLabel != null) ch2RoleLabel.Text = r2;
+            if (ch3RoleLabel != null) ch3RoleLabel.Text = r3;
+            if (ch4RoleLabel != null) ch4RoleLabel.Text = r4;
+        }
+
         private void EnabledCheckBox_CheckedChanged(object sender, EventArgs e)
         {
             if (enabledCheckBox.Checked && !_processIsStarted)
