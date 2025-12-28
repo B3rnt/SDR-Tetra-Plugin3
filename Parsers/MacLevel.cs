@@ -524,11 +524,11 @@ namespace SDRSharp.Tetra
                     catch { }
                     
 
-                    // Cache number of Common Secondary Control Channels (SCCH on MCCH)
+                    // Cache NumberOfCommon_SC globally for GUI timeslot role labels (MCCH/SCCH mapping)
                     try
                     {
                         int nsc = result.Value(GlobalNames.NumberOfCommon_SC);
-                        if (nsc >= 0)
+                        if (nsc >= 0 && nsc <= 3) // spec: 0..3 (=> SCCH1..SCCH3) typically
                             TetraRuntime.NumberOfCommonSC = nsc;
                     }
                     catch { }
