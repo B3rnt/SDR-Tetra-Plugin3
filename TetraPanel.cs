@@ -131,6 +131,8 @@ namespace SDRSharp.Tetra
             try
             {
                 InitializeComponent();
+            // Ensure initial TS role labels are shown even before the first timer tick
+            UpdateTimeslotRoleLabels();
 
                 InitArrays();
 
@@ -1202,10 +1204,10 @@ private void UpdateTimeslotRoleLabels()
     string r4 = GetRoleText(4, n, _ch4IsActive);
 
     // Put the role inside the visible radio text so it always shows even on narrow panels.
-    ch1RadioButton.Text = "Timeslot 1  " + r1;
-    ch2RadioButton.Text = "Timeslot 2  " + r2;
-    ch3RadioButton.Text = "Timeslot 3  " + r3;
-    ch4RadioButton.Text = "Timeslot 4  " + r4;
+    ch1RadioButton.Text = "TS1: " + r1;
+    ch2RadioButton.Text = "TS2: " + r2;
+    ch3RadioButton.Text = "TS3: " + r3;
+    ch4RadioButton.Text = "TS4: " + r4;
 }
 
 private static string GetRoleText(int timeslot, int nCommonSc, bool isActive)
