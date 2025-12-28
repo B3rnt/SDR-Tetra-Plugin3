@@ -209,27 +209,19 @@ namespace SDRSharp.Tetra
             MmLogger.LogMmPdu(channelData, mmStart, channelData.Length - mmStart, result);
         }
 
-        /// <summary>
-        /// Decode Location Update Accept “extensions”.
-        /// This network encodes the GSSI nibble-shifted (4-bit) right before the byte pattern ?? 84 8D 40.
-        /// We recover from that pattern (authoritative). If not found, we fall back to GI-list decoding.
-        /// </summary>
         private static int ParseLocationUpdateAcceptExtensions(LogicChannel channelData, int offset, ReceivedData result)
         {
             try
             {
-                // Need at least: 4 bits (groupIdentityLocAccept) + 6 bits (defaultLifetime)
                 if (offset + 10 > channelData.Length)
                     return offset;
 
                 int groupIdentityLocAccept = TetraUtils.BitsToInt32(channelData.Ptr, offset, 4);
                 offset += 4;
 
-                // IMPORTANT: 6 bits
                 int defaultLifetime = TetraUtils.BitsToInt32(channelData.Ptr, offset, 6);
                 offset += 6;
 
-                // If no GI extension: don't try to "invent" a GSSI later.
                 if (groupIdentityLocAccept == 0)
                 {
                     bool cckFound = ScanForCck64(channelData, offset, result);
@@ -238,7 +230,7 @@ namespace SDRSharp.Tetra
                     return offset;
                 }
 
-                // Fallback candidate from GI-list (only used if pattern recover fails)
+                // fallback candidate from GI list if marker recovery fails
                 int giListCandidate = -1;
 
                 while (offset + 2 <= channelData.Length)
@@ -246,7 +238,6 @@ namespace SDRSharp.Tetra
                     int t = TetraUtils.BitsToInt32(channelData.Ptr, offset, 2);
                     offset += 2;
 
-                    // Terminator
                     if (t == 3)
                         break;
 
@@ -268,7 +259,7 @@ namespace SDRSharp.Tetra
                         if (giListCandidate < 0) giListCandidate = gssi;
                         if (result.Value(GlobalNames.MM_vGSSI) <= 0) result.SetValue(GlobalNames.MM_vGSSI, gssi);
 
-                        offset += 24; // skip extra 24
+                        offset += 24;
                     }
                     else if (t == 2)
                     {
@@ -285,11 +276,10 @@ namespace SDRSharp.Tetra
                     }
                 }
 
-                // Scan CCK
                 ScanForCck64(channelData, offset, result);
 
-                // AUTHORITATIVE: recover nibble-shifted GSSI before ?? 84 8D 40
-                if (TryRecoverNibbleShiftedGssiBefore848D40(channelData, out int recoveredGssi))
+                // AUTHORITATIVE: recover nibble-shifted GSSI before (?? 84 8D 40) on ANY bit alignment
+                if (TryRecoverNibbleShiftedGssiBefore848D40_AnyAlignment(channelData, out int recoveredGssi))
                 {
                     result.SetValue(GlobalNames.GSSI, recoveredGssi);
                     result.SetValue(GlobalNames.GSSI_verified, 1);
@@ -300,7 +290,6 @@ namespace SDRSharp.Tetra
                     result.SetValue(GlobalNames.GSSI_verified, 1);
                 }
 
-                // ITSI attach heuristic
                 if (result.Value(GlobalNames.CCK_id) == 64 && result.Value(GlobalNames.GSSI_verified) == 0)
                     result.SetValue(GlobalNames.ITSI_attach, 1);
 
@@ -329,47 +318,53 @@ namespace SDRSharp.Tetra
                 }
             }
             catch { }
-
             return false;
         }
 
         /// <summary>
-        /// Recover GSSI from nibble-shifted encoding right before the byte pattern ?? 84 8D 40.
-        /// Examples:
-        ///   ... 02 D5 1B 86 84 8D 40 ... => GSSI 0x2D51B8
-        ///   ... 06 A5 B1 86 84 8D 40 ... => GSSI 0x6A5B18
-        ///   ... 02 BA 5F 96 84 8D 40 ... => GSSI 0x2BA5F9
+        /// Recovers GSSI when it is nibble-shifted (4-bit) and located right before the marker ?? 84 8D 40,
+        /// but the marker itself may be NOT byte-aligned in the bitstream. So we scan all 8 possible alignments.
+        ///
+        /// Reconstruction:
+        ///   bytes: p3 p2 p1 p0 84 8D 40  (p0 high nibble is last nibble of GSSI; p3 low nibble is first nibble)
+        ///   GSSI = [lowNibble(p3)] [p2] [p1] [highNibble(p0)]
         /// </summary>
-        private static bool TryRecoverNibbleShiftedGssiBefore848D40(LogicChannel channelData, out int gssi)
+        private static bool TryRecoverNibbleShiftedGssiBefore848D40_AnyAlignment(LogicChannel channelData, out int gssi)
         {
             gssi = -1;
             try
             {
-                int lastByteStartBit = channelData.Length - 8;
-                for (int bit = 0; bit <= lastByteStartBit - (8 * 4); bit += 8)
+                int maxBit = channelData.Length - 8;
+
+                for (int start = 0; start < 8; start++)
                 {
-                    byte b0 = ReadByte(channelData, bit + 0);   // variable (contains high nibble used)
-                    byte b1 = ReadByte(channelData, bit + 8);   // 0x84
-                    byte b2 = ReadByte(channelData, bit + 16);  // 0x8D
-                    byte b3 = ReadByte(channelData, bit + 24);  // 0x40
-
-                    if (b1 == 0x84 && b2 == 0x8D && b3 == 0x40)
+                    // we need: p3 p2 p1 p0 84 8D 40  => total 7 bytes => 56 bits
+                    for (int bit = start; bit + (8 * 7) <= channelData.Length; bit++)
                     {
-                        if (bit < 24) return false; // need 3 bytes before b0
+                        // interpret "bytes" at this alignment
+                        byte p0 = ReadByteAtBit(channelData, bit + (8 * 3)); // variable
+                        byte b1 = ReadByteAtBit(channelData, bit + (8 * 4)); // 0x84
+                        byte b2 = ReadByteAtBit(channelData, bit + (8 * 5)); // 0x8D
+                        byte b3 = ReadByteAtBit(channelData, bit + (8 * 6)); // 0x40
 
-                        byte p3 = ReadByte(channelData, bit - 24);
-                        byte p2 = ReadByte(channelData, bit - 16);
-                        byte p1 = ReadByte(channelData, bit - 8);
-                        byte p0 = b0;
+                        if (b1 == 0x84 && b2 == 0x8D && b3 == 0x40)
+                        {
+                            byte p3 = ReadByteAtBit(channelData, bit + (8 * 0));
+                            byte p2 = ReadByteAtBit(channelData, bit + (8 * 1));
+                            byte p1 = ReadByteAtBit(channelData, bit + (8 * 2));
 
-                        int value =
-                            ((p3 & 0x0F) << 20) |
-                            (p2 << 12) |
-                            (p1 << 4) |
-                            ((p0 >> 4) & 0x0F);
+                            int value =
+                                ((p3 & 0x0F) << 20) |
+                                (p2 << 12) |
+                                (p1 << 4) |
+                                ((p0 >> 4) & 0x0F);
 
-                        gssi = value;
-                        return true;
+                            gssi = value;
+                            return true;
+                        }
+
+                        // advance 1 bit at a time within this alignment-search window
+                        // (we keep it as bit++ so we can catch markers that start at this alignment but not at byte boundaries of the PDU)
                     }
                 }
             }
@@ -378,7 +373,7 @@ namespace SDRSharp.Tetra
             return false;
         }
 
-        private static byte ReadByte(LogicChannel channelData, int bitOffset)
+        private static byte ReadByteAtBit(LogicChannel channelData, int bitOffset)
         {
             byte v = 0;
             for (int i = 0; i < 8; i++)
