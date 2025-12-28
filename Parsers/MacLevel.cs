@@ -522,7 +522,17 @@ namespace SDRSharp.Tetra
                             TetraRuntime.CurrentLocationArea = la;
                     }
                     catch { }
-                    break;
+                    
+
+                    // Cache number of Common Secondary Control Channels (SCCH on MCCH)
+                    try
+                    {
+                        int nsc = result.Value(GlobalNames.NumberOfCommon_SC);
+                        if (nsc >= 0)
+                            TetraRuntime.NumberOfCommonSC = nsc;
+                    }
+                    catch { }
+break;
             }
 
             return offset;

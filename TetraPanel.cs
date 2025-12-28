@@ -985,6 +985,8 @@ namespace SDRSharp.Tetra
             label7.Text = (_currentCellLoad[2].Type == 1 ? "g " : "") + _currentCellLoad[2].GroupName;
             label6.Text = (_currentCellLoad[3].Type == 1 ? "g " : "") + _currentCellLoad[3].GroupName;
 
+            UpdateTimeslotRoleLabels();
+
             _activeCounter1--;
             if (_activeCounter1 < 0)
             {
