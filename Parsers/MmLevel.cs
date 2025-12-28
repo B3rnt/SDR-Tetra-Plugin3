@@ -1,3 +1,4 @@
+```csharp
 using System;
 using System.Text;
 
@@ -91,11 +92,15 @@ namespace SDRSharp.Tetra
         {
             int mmStart = offset;
 
+            // Clear per-PDU fields
             result.SetValue(GlobalNames.GSSI, -1);
             result.SetValue(GlobalNames.MM_vGSSI, -1);
             result.SetValue(GlobalNames.CCK_id, -1);
-            // 0=none, 1=candidate/fallback, 2=marker-verified (trusted)
+
+            // 0 = none, 1 = clean GI-list derived (candidate), 2 = marker-verified (trusted)
             result.SetValue(GlobalNames.GSSI_verified, 0);
+
+            // 1 if ITSI attach
             result.SetValue(GlobalNames.ITSI_attach, 0);
 
             if (offset + 4 > channelData.Length)
@@ -162,6 +167,7 @@ namespace SDRSharp.Tetra
 
                         if (offset + 8 <= channelData.Length)
                         {
+                            // CCK_identifier can vary, store as-is if present
                             result.SetValue(GlobalNames.CCK_id, TetraUtils.BitsToInt32(channelData.Ptr, offset, 8));
                             offset += 8;
                         }
@@ -202,11 +208,21 @@ namespace SDRSharp.Tetra
             MmLogger.LogMmPdu(channelData, mmStart, channelData.Length - mmStart, result);
         }
 
+        /// <summary>
+        /// LU Accept decoding:
+        /// - Determine ITSI attach vs roaming by the first byte at the correct alignment:
+        ///     0x57 => ITSI attach
+        ///     0x51 => Roaming location updating
+        /// - Recover GSSI preferably via marker 84 8D 40 (trusted, verified=2)
+        /// - If no marker:
+        ///     * ITSI attach: allow GSSI ONLY if GI list is "clean" (terminator present) (verified=1)
+        ///     * Roaming/other: allow clean GI list candidate as fallback (verified=1)
+        /// </summary>
         private static int ParseLocationUpdateAcceptExtensions(LogicChannel channelData, int offset, int mmStart, ReceivedData result)
         {
             try
             {
-                // Find actual alignment: try mmStart+align where first byte is 0x57 or 0x51
+                // Find true byte alignment by looking for known first bytes 0x57/0x51
                 int align = FindLuAcceptAlignment(channelData, mmStart);
                 byte luFirst = ReadByteAtBit(channelData, mmStart + align);
 
@@ -215,6 +231,7 @@ namespace SDRSharp.Tetra
 
                 result.SetValue(GlobalNames.ITSI_attach, isItsi ? 1 : 0);
 
+                // Need at least 4+6 bits
                 if (offset + 10 > channelData.Length)
                     return offset;
 
@@ -224,19 +241,20 @@ namespace SDRSharp.Tetra
                 int defaultLifetime = TetraUtils.BitsToInt32(channelData.Ptr, offset, 6);
                 offset += 6;
 
-                // Marker scan window from the aligned start
                 const int MARKER_SCAN_WINDOW_BITS = 512;
 
                 bool markerRecovered = false;
                 if (TryRecoverNibbleShiftedGssiBefore848D40_AlignedWindow(channelData, mmStart + align, MARKER_SCAN_WINDOW_BITS, out int recoveredGssi))
                 {
                     result.SetValue(GlobalNames.GSSI, recoveredGssi);
-                    result.SetValue(GlobalNames.GSSI_verified, 2); // marker-verified
+                    result.SetValue(GlobalNames.GSSI_verified, 2); // trusted
                     markerRecovered = true;
                 }
 
-                // Parse GI list only as candidate
+                // Parse GI list only as candidate; only accept if list ends cleanly
                 int giListCandidate = -1;
+                bool sawAnyEntry = false;
+                bool sawTerminator = false;
 
                 if (groupIdentityLocAccept != 0)
                 {
@@ -245,7 +263,13 @@ namespace SDRSharp.Tetra
                         int t = TetraUtils.BitsToInt32(channelData.Ptr, offset, 2);
                         offset += 2;
 
-                        if (t == 3) break;
+                        if (t == 3)
+                        {
+                            sawTerminator = true;
+                            break;
+                        }
+
+                        sawAnyEntry = true;
 
                         if (t == 0)
                         {
@@ -265,7 +289,7 @@ namespace SDRSharp.Tetra
                             if (giListCandidate < 0) giListCandidate = g;
                             if (result.Value(GlobalNames.MM_vGSSI) <= 0) result.SetValue(GlobalNames.MM_vGSSI, g);
 
-                            offset += 24;
+                            offset += 24; // skip extra 24 bits
                         }
                         else if (t == 2)
                         {
@@ -276,29 +300,49 @@ namespace SDRSharp.Tetra
                             result.SetValue(GlobalNames.MM_vGSSI, vg);
                             if (giListCandidate < 0) giListCandidate = vg;
                         }
-                        else break;
+                        else
+                        {
+                            break;
+                        }
                     }
                 }
 
-                // ITSI attach: ONLY show marker-verified GSSI. If no marker -> no GSSI.
-                if (isItsi && !markerRecovered)
-                {
-                    result.SetValue(GlobalNames.GSSI, -1);
-                    result.SetValue(GlobalNames.GSSI_verified, 0);
-                }
+                bool cleanGiList = (sawAnyEntry && sawTerminator && giListCandidate > 0);
 
-                // Roaming: allow fallback candidate if marker not present
-                if (isRoam && !markerRecovered && giListCandidate > 0 && result.Value(GlobalNames.GSSI_verified) == 0)
+                if (isItsi)
                 {
-                    result.SetValue(GlobalNames.GSSI, giListCandidate);
-                    result.SetValue(GlobalNames.GSSI_verified, 1);
+                    // ITSI attach: prefer marker; if no marker, accept GSSI only if GI list is clean (SDRTetra behavior)
+                    if (!markerRecovered)
+                    {
+                        if (cleanGiList)
+                        {
+                            result.SetValue(GlobalNames.GSSI, giListCandidate);
+                            result.SetValue(GlobalNames.GSSI_verified, 1);
+                        }
+                        else
+                        {
+                            result.SetValue(GlobalNames.GSSI, -1);
+                            result.SetValue(GlobalNames.GSSI_verified, 0);
+                        }
+                    }
                 }
-
-                // Unknown subtype: allow fallback only if not ITSI
-                if (!isItsi && !isRoam && !markerRecovered && giListCandidate > 0 && result.Value(GlobalNames.GSSI_verified) == 0)
+                else if (isRoam)
                 {
-                    result.SetValue(GlobalNames.GSSI, giListCandidate);
-                    result.SetValue(GlobalNames.GSSI_verified, 1);
+                    // Roaming: if no marker, fallback to clean GI list
+                    if (!markerRecovered && cleanGiList && result.Value(GlobalNames.GSSI_verified) == 0)
+                    {
+                        result.SetValue(GlobalNames.GSSI, giListCandidate);
+                        result.SetValue(GlobalNames.GSSI_verified, 1);
+                    }
+                }
+                else
+                {
+                    // Unknown type: allow clean GI list fallback if marker absent
+                    if (!markerRecovered && cleanGiList && result.Value(GlobalNames.GSSI_verified) == 0)
+                    {
+                        result.SetValue(GlobalNames.GSSI, giListCandidate);
+                        result.SetValue(GlobalNames.GSSI_verified, 1);
+                    }
                 }
 
                 return offset;
@@ -325,7 +369,13 @@ namespace SDRSharp.Tetra
             return 0;
         }
 
-        // Marker scan ONLY on the provided alignedStart (step=8)
+        /// <summary>
+        /// Recover GSSI from nibble-shifted encoding right before marker 84 8D 40.
+        /// Reconstruction:
+        ///   p3 p2 p1 p0 84 8D 40
+        ///   GSSI = [lowNibble(p3)] [p2] [p1] [highNibble(p0)]
+        /// Scan ONLY on the supplied alignedStart (byte steps).
+        /// </summary>
         private static bool TryRecoverNibbleShiftedGssiBefore848D40_AlignedWindow(
             LogicChannel channelData, int alignedStart, int windowBits, out int gssi)
         {
@@ -336,10 +386,10 @@ namespace SDRSharp.Tetra
                 int scanStart = Math.Max(0, alignedStart);
                 int scanEnd = Math.Min(channelData.Length, alignedStart + Math.Max(0, windowBits));
 
+                // Need 7 bytes (p3 p2 p1 p0 84 8D 40)
                 if (scanEnd - scanStart < (8 * 7))
                     return false;
 
-                // alignedStart is already aligned; step in bytes
                 for (int bit = scanStart; bit + (8 * 7) <= scanEnd; bit += 8)
                 {
                     byte b1 = ReadByteAtBit(channelData, bit + (8 * 4));
@@ -421,7 +471,7 @@ namespace SDRSharp.Tetra
                 int gssiVerified = parsed.Value(GlobalNames.GSSI_verified);
                 int cckId = parsed.Value(GlobalNames.CCK_id);
 
-                // Determine subtype by alignment search (same as parser)
+                // Determine LU subtype by alignment search
                 int align = 0;
                 try
                 {
@@ -485,10 +535,10 @@ namespace SDRSharp.Tetra
 
                         if (ssi > 0) { sb.Append(" for SSI: "); sb.Append(ssi); }
 
-                        // ITSI attach: only show marker-verified GSSI (==2)
+                        // ITSI attach: show GSSI when marker-verified (2) OR clean GI-list derived (1)
                         if (isItsi)
                         {
-                            if (gssiVerified == 2 && gssi > 0)
+                            if ((gssiVerified == 2 || gssiVerified == 1) && gssi > 0)
                             {
                                 sb.Append(" GSSI: ");
                                 sb.Append(gssi);
@@ -509,6 +559,7 @@ namespace SDRSharp.Tetra
                             sb.Append(AuthenticationStatusToString(_lastAuthStatus));
                         }
 
+                        // Log CCK if present, but never classify on it (it can vary)
                         if (cckId > 0)
                         {
                             sb.Append(" - CCK_identifier: ");
@@ -535,7 +586,7 @@ namespace SDRSharp.Tetra
                     }
                 }
 
-                // Debug raw only for ITSI attach LU accepts (optional)
+                // Debug raw only for ITSI attach LU accepts (so you can compare with/without GSSI)
                 if (mmType == MmPduType.D_LOCATION_UPDATE_ACCEPT && isItsi)
                 {
                     sb.Append("  raw=");
@@ -588,3 +639,4 @@ namespace SDRSharp.Tetra
         }
     }
 }
+```
