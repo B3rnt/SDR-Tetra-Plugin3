@@ -112,14 +112,7 @@ namespace SDRSharp.Tetra
             {
                 case MmPduType.D_LOCATION_UPDATE_ACCEPT:
                     offset = Global.ParseParams(channelData, offset, _locationUpdateAcceptRules, result);
-                    offset = ParseLocationUpdateAcceptExtensions(channelData, offset, result);
-
-                    // Last resort: if we still didn't find CCK_id, scan a bit wider over this MM payload.
-                    if (result.Value(GlobalNames.CCK_id) <= 0)
-                        ScanForCck64(channelData, mmStart, result);
-
-                    if (result.Value(GlobalNames.CCK_id) == 64 && result.Value(GlobalNames.GSSI_verified) == 0)
-                        result.SetValue(GlobalNames.ITSI_attach, 1);
+                    offset = ParseLocationUpdateAcceptExtensions(channelData, offset, mmStart, result);
                     break;
 
                 case MmPduType.D_LOCATION_UPDATE_COMMAND:
@@ -167,6 +160,7 @@ namespace SDRSharp.Tetra
                         result.SetValue(GlobalNames.Otar_sub_type, sub);
                         offset += 4;
 
+                        // For OTAR, keep whatever is present (can vary!)
                         if (offset + 8 <= channelData.Length)
                         {
                             result.SetValue(GlobalNames.CCK_id, TetraUtils.BitsToInt32(channelData.Ptr, offset, 8));
@@ -209,10 +203,22 @@ namespace SDRSharp.Tetra
             MmLogger.LogMmPdu(channelData, mmStart, channelData.Length - mmStart, result);
         }
 
-        private static int ParseLocationUpdateAcceptExtensions(LogicChannel channelData, int offset, ReceivedData result)
+        /// <summary>
+        /// SDRTetra-like behavior:
+        /// - Determine ITSI attach vs roaming from the first octet of the LU Accept:
+        ///     0x57 => ITSI attach
+        ///     0x51 => Roaming location updating
+        /// - For ITSI attach (0x57): show GSSI ONLY when recovered via marker (authoritative).
+        /// - CCK_identifier is NOT used for classification (it can vary). We only log it when already decoded.
+        /// </summary>
+        private static int ParseLocationUpdateAcceptExtensions(LogicChannel channelData, int offset, int mmStart, ReceivedData result)
         {
             try
             {
+                byte luFirst = ReadByteAtBit(channelData, mmStart);
+                bool isItsi = (luFirst == 0x57);
+                bool isRoam = (luFirst == 0x51);
+
                 if (offset + 10 > channelData.Length)
                     return offset;
 
@@ -222,76 +228,92 @@ namespace SDRSharp.Tetra
                 int defaultLifetime = TetraUtils.BitsToInt32(channelData.Ptr, offset, 6);
                 offset += 6;
 
-                if (groupIdentityLocAccept == 0)
-                {
-                    bool cckFound = ScanForCck64(channelData, offset, result);
-                    if (cckFound && result.Value(GlobalNames.CCK_id) == 64)
-                        result.SetValue(GlobalNames.ITSI_attach, 1);
-                    return offset;
-                }
-
-                // fallback candidate from GI list if marker recovery fails
-                int giListCandidate = -1;
-
-                while (offset + 2 <= channelData.Length)
-                {
-                    int t = TetraUtils.BitsToInt32(channelData.Ptr, offset, 2);
-                    offset += 2;
-
-                    if (t == 3)
-                        break;
-
-                    if (t == 0)
-                    {
-                        if (offset + 24 > channelData.Length) break;
-                        int gssi = TetraUtils.BitsToInt32(channelData.Ptr, offset, 24);
-                        offset += 24;
-
-                        if (giListCandidate < 0) giListCandidate = gssi;
-                        if (result.Value(GlobalNames.MM_vGSSI) <= 0) result.SetValue(GlobalNames.MM_vGSSI, gssi);
-                    }
-                    else if (t == 1)
-                    {
-                        if (offset + 48 > channelData.Length) break;
-                        int gssi = TetraUtils.BitsToInt32(channelData.Ptr, offset, 24);
-                        offset += 24;
-
-                        if (giListCandidate < 0) giListCandidate = gssi;
-                        if (result.Value(GlobalNames.MM_vGSSI) <= 0) result.SetValue(GlobalNames.MM_vGSSI, gssi);
-
-                        offset += 24;
-                    }
-                    else if (t == 2)
-                    {
-                        if (offset + 24 > channelData.Length) break;
-                        int vgssi = TetraUtils.BitsToInt32(channelData.Ptr, offset, 24);
-                        offset += 24;
-
-                        result.SetValue(GlobalNames.MM_vGSSI, vgssi);
-                        if (giListCandidate < 0) giListCandidate = vgssi;
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
-
-                ScanForCck64(channelData, offset, result);
-
-                // AUTHORITATIVE: recover nibble-shifted GSSI before (?? 84 8D 40) on ANY bit alignment
+                // 1) Authoritative recovery of GSSI (your network)
+                bool markerRecovered = false;
                 if (TryRecoverNibbleShiftedGssiBefore848D40_AnyAlignment(channelData, out int recoveredGssi))
                 {
                     result.SetValue(GlobalNames.GSSI, recoveredGssi);
                     result.SetValue(GlobalNames.GSSI_verified, 1);
-                }
-                else if (giListCandidate > 0)
-                {
-                    result.SetValue(GlobalNames.GSSI, giListCandidate);
-                    result.SetValue(GlobalNames.GSSI_verified, 1);
+                    markerRecovered = true;
                 }
 
-                if (result.Value(GlobalNames.CCK_id) == 64 && result.Value(GlobalNames.GSSI_verified) == 0)
+                // 2) Parse GI list only as optional candidate/vGSSI (do not force it as GSSI for ITSI attach)
+                int giListCandidate = -1;
+                if (groupIdentityLocAccept != 0)
+                {
+                    while (offset + 2 <= channelData.Length)
+                    {
+                        int t = TetraUtils.BitsToInt32(channelData.Ptr, offset, 2);
+                        offset += 2;
+
+                        if (t == 3) break;
+
+                        if (t == 0)
+                        {
+                            if (offset + 24 > channelData.Length) break;
+                            int g = TetraUtils.BitsToInt32(channelData.Ptr, offset, 24);
+                            offset += 24;
+
+                            if (giListCandidate < 0) giListCandidate = g;
+                            if (result.Value(GlobalNames.MM_vGSSI) <= 0) result.SetValue(GlobalNames.MM_vGSSI, g);
+                        }
+                        else if (t == 1)
+                        {
+                            if (offset + 48 > channelData.Length) break;
+                            int g = TetraUtils.BitsToInt32(channelData.Ptr, offset, 24);
+                            offset += 24;
+
+                            if (giListCandidate < 0) giListCandidate = g;
+                            if (result.Value(GlobalNames.MM_vGSSI) <= 0) result.SetValue(GlobalNames.MM_vGSSI, g);
+
+                            offset += 24; // skip extra 24
+                        }
+                        else if (t == 2)
+                        {
+                            if (offset + 24 > channelData.Length) break;
+                            int vg = TetraUtils.BitsToInt32(channelData.Ptr, offset, 24);
+                            offset += 24;
+
+                            result.SetValue(GlobalNames.MM_vGSSI, vg);
+                            if (giListCandidate < 0) giListCandidate = vg;
+                        }
+                        else break;
+                    }
+                }
+
+                // 3) Apply SDRTetra-style classification
+                if (isItsi)
+                {
                     result.SetValue(GlobalNames.ITSI_attach, 1);
+
+                    // SDRTetra: ITSI attach may show no GSSI even if some 24b candidate exists.
+                    // Only show if markerRecovered.
+                    if (!markerRecovered)
+                    {
+                        result.SetValue(GlobalNames.GSSI, -1);
+                        result.SetValue(GlobalNames.GSSI_verified, 0);
+                    }
+                }
+                else if (isRoam)
+                {
+                    result.SetValue(GlobalNames.ITSI_attach, 0);
+
+                    // If we didn't recover via marker and we have a GI candidate, allow it (roaming case)
+                    if (!markerRecovered && giListCandidate > 0 && result.Value(GlobalNames.GSSI_verified) == 0)
+                    {
+                        result.SetValue(GlobalNames.GSSI, giListCandidate);
+                        result.SetValue(GlobalNames.GSSI_verified, 1);
+                    }
+                }
+                else
+                {
+                    // Unknown subtype: allow fallback candidate if nothing better exists
+                    if (!markerRecovered && giListCandidate > 0 && result.Value(GlobalNames.GSSI_verified) == 0)
+                    {
+                        result.SetValue(GlobalNames.GSSI, giListCandidate);
+                        result.SetValue(GlobalNames.GSSI_verified, 1);
+                    }
+                }
 
                 return offset;
             }
@@ -301,32 +323,11 @@ namespace SDRSharp.Tetra
             }
         }
 
-        private static bool ScanForCck64(LogicChannel channelData, int offset, ReceivedData result)
-        {
-            try
-            {
-                int scanEnd = Math.Min(channelData.Length - 8, offset + 192);
-                for (int i = offset; i <= scanEnd; i++)
-                {
-                    if ((i % 8) != 0) continue;
-                    int b = TetraUtils.BitsToInt32(channelData.Ptr, i, 8);
-                    if (b == 64)
-                    {
-                        result.SetValue(GlobalNames.CCK_id, b);
-                        return true;
-                    }
-                }
-            }
-            catch { }
-            return false;
-        }
-
         /// <summary>
-        /// Recovers GSSI when it is nibble-shifted (4-bit) and located right before the marker ?? 84 8D 40,
-        /// but the marker itself may be NOT byte-aligned in the bitstream. So we scan all 8 possible alignments.
-        ///
+        /// Recover GSSI from nibble-shifted encoding right before the marker ?? 84 8D 40,
+        /// for ANY bit alignment.
         /// Reconstruction:
-        ///   bytes: p3 p2 p1 p0 84 8D 40  (p0 high nibble is last nibble of GSSI; p3 low nibble is first nibble)
+        ///   p3 p2 p1 p0 84 8D 40
         ///   GSSI = [lowNibble(p3)] [p2] [p1] [highNibble(p0)]
         /// </summary>
         private static bool TryRecoverNibbleShiftedGssiBefore848D40_AnyAlignment(LogicChannel channelData, out int gssi)
@@ -334,15 +335,10 @@ namespace SDRSharp.Tetra
             gssi = -1;
             try
             {
-                int maxBit = channelData.Length - 8;
-
                 for (int start = 0; start < 8; start++)
                 {
-                    // we need: p3 p2 p1 p0 84 8D 40  => total 7 bytes => 56 bits
                     for (int bit = start; bit + (8 * 7) <= channelData.Length; bit++)
                     {
-                        // interpret "bytes" at this alignment
-                        byte p0 = ReadByteAtBit(channelData, bit + (8 * 3)); // variable
                         byte b1 = ReadByteAtBit(channelData, bit + (8 * 4)); // 0x84
                         byte b2 = ReadByteAtBit(channelData, bit + (8 * 5)); // 0x8D
                         byte b3 = ReadByteAtBit(channelData, bit + (8 * 6)); // 0x40
@@ -352,6 +348,7 @@ namespace SDRSharp.Tetra
                             byte p3 = ReadByteAtBit(channelData, bit + (8 * 0));
                             byte p2 = ReadByteAtBit(channelData, bit + (8 * 1));
                             byte p1 = ReadByteAtBit(channelData, bit + (8 * 2));
+                            byte p0 = ReadByteAtBit(channelData, bit + (8 * 3));
 
                             int value =
                                 ((p3 & 0x0F) << 20) |
@@ -362,9 +359,6 @@ namespace SDRSharp.Tetra
                             gssi = value;
                             return true;
                         }
-
-                        // advance 1 bit at a time within this alignment-search window
-                        // (we keep it as bit++ so we can catch markers that start at this alignment but not at byte boundaries of the PDU)
                     }
                 }
             }
@@ -403,8 +397,8 @@ namespace SDRSharp.Tetra
                 sb.Append("  ");
 
                 int la = parsed.Value(GlobalNames.Location_Area);
-                if (la <= 0)
-                    la = TetraRuntime.CurrentLocationArea;
+                if (la <= 0) la = TetraRuntime.CurrentLocationArea;
+
                 if (la > 0)
                 {
                     sb.Append("[LA: ");
@@ -427,8 +421,10 @@ namespace SDRSharp.Tetra
 
                 int cckId = parsed.Value(GlobalNames.CCK_id);
 
-                bool isItsiAttach = (mmType == MmPduType.D_LOCATION_UPDATE_ACCEPT && parsed.Value(GlobalNames.ITSI_attach) == 1);
-                int lut = parsed.Value(GlobalNames.Location_update_type);
+                // LU subtype discriminator like SDRTetra output
+                byte luFirst = ReadByteAtBit(channelData, bitOffset);
+                bool isItsi = (luFirst == 0x57);
+                bool isRoam = (luFirst == 0x51);
 
                 switch (mmType)
                 {
@@ -471,6 +467,7 @@ namespace SDRSharp.Tetra
                         int acc = parsed.Value(GlobalNames.Location_update_accept_type);
 
                         sb.Append("MS request for registration");
+
                         bool recentAuth = (_lastAuthSsi > 0 && _lastAuthSsi == ssi && (DateTime.Now - _lastAuthTime).TotalSeconds <= 3.0);
                         if (acc == 0 || recentAuth) sb.Append("/authentication ACCEPTED");
                         else sb.Append(" ACCEPTED");
@@ -489,33 +486,25 @@ namespace SDRSharp.Tetra
                             sb.Append(AuthenticationStatusToString(_lastAuthStatus));
                         }
 
-                        if (cckId > 0)
+                        // Log CCK_identifier if already decoded (do NOT classify on it!)
+                        if (cckId >= 0)
                         {
                             sb.Append(" - CCK_identifier: ");
                             sb.Append(cckId);
                         }
 
-                        if (isItsiAttach)
-                        {
+                        // Tail EXACT style
+                        if (isItsi)
                             sb.Append(" - ITSI attach");
-                        }
-                        else if (cckId == 64)
-                        {
+                        else if (isRoam)
                             sb.Append(" - Roaming location updating");
-                        }
-                        else
-                        {
-                            if (lut >= 0)
-                            {
-                                string lutText = LocationUpdateTypeToString(lut);
-                                if (!string.IsNullOrEmpty(lutText))
-                                {
-                                    sb.Append(" - ");
-                                    sb.Append(lutText);
-                                }
-                            }
-                        }
 
+                        break;
+                    }
+
+                    case MmPduType.D_OTAR:
+                    {
+                        sb.Append("MM D_OTAR");
                         break;
                     }
 
@@ -526,9 +515,6 @@ namespace SDRSharp.Tetra
                         break;
                     }
                 }
-
-                sb.Append("  raw=");
-                sb.Append(BitsToHex(channelData.Ptr, bitOffset, bitLength));
 
                 new TextFile().Write(sb.ToString(), DefaultPath);
             }
@@ -544,35 +530,15 @@ namespace SDRSharp.Tetra
             return "Authentication status unknown";
         }
 
-        private static string LocationUpdateTypeToString(int t)
+        private static byte ReadByteAtBit(LogicChannel channelData, int bitOffset)
         {
-            switch (t)
+            byte v = 0;
+            for (int i = 0; i < 8; i++)
             {
-                case 0: return "Normal location updating";
-                case 1: return "Roaming location updating";
-                case 2: return "Periodic location updating";
-                default: return "Location update type " + t.ToString();
+                int bit = channelData.Ptr[bitOffset + i] & 0x1;
+                v |= (byte)(bit << (7 - i));
             }
-        }
-
-        private static string BitsToHex(byte* ptr, int bitOffset, int bitLength)
-        {
-            if (bitLength <= 0) return string.Empty;
-            int byteLen = (bitLength + 7) / 8;
-            byte[] bytes = new byte[byteLen];
-
-            for (int i = 0; i < bitLength; i++)
-            {
-                int bit = ptr[bitOffset + i] & 0x1;
-                int byteIndex = i / 8;
-                int bitInByte = 7 - (i % 8);
-                bytes[byteIndex] |= (byte)(bit << bitInByte);
-            }
-
-            var sb = new StringBuilder(byteLen * 2);
-            for (int i = 0; i < bytes.Length; i++)
-                sb.Append(bytes[i].ToString("X2"));
-            return sb.ToString();
+            return v;
         }
     }
 }
