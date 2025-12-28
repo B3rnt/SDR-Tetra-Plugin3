@@ -110,8 +110,6 @@ namespace SDRSharp.Tetra
         private int _resetCounter;
         private bool _writerBlocked;
 
-        private long _lastFrequencyHz = -1;
-        private int _lastCarrierIndex = 0;
         private int _numCommonScchCached = -1;
 
         private const string DefaultLogEntryRules = "date + time + mcc + mnc + la + cc + carrier + slot + callid + type + from + to + encryption + duplex";

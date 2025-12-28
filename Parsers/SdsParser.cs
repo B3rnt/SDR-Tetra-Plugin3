@@ -196,12 +196,8 @@ namespace SDRSharp.Tetra
                     break;
 
                 default:
-                    offset = Global.ParseParams(channelData, offset, _sds_SimpleTextRules, result);
-                    ParseTextMessage(channelData, offset, result);
-                    result.Add(GlobalNames.UnknowData, 1);
-                    break;
-
-
+                        result.Add(GlobalNames.UnknowData, 1);
+                        return;
             }
         }
 
@@ -241,12 +237,13 @@ namespace SDRSharp.Tetra
                         case LocationTypeExtension.Report_basic_location_parameters:
                         case LocationTypeExtension.Report_trigger:
                         default:
-                            result.Add(GlobalNames.UnknowData, 1);
-                            break;
+                                result.Add(GlobalNames.UnknowData, 1);
+                                return;
                     }
                     break;
                 default:
-                    break;
+                        result.Add(GlobalNames.UnknowData, 1);
+                        return;
             }
         }
 
@@ -338,9 +335,8 @@ namespace SDRSharp.Tetra
                     break;
 
                 default:
-                    break;
-                    result.Add(GlobalNames.UnknowData, 1);
-                    return;
+                        result.Add(GlobalNames.UnknowData, 1);
+                        return;
             }
 
             Decoder dec = encTable.GetDecoder();
