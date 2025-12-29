@@ -1,10 +1,9 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net7.0-windows</TargetFramework>
-    <Platforms>x86</Platforms>
-    <PlatformTarget>x86</PlatformTarget>
+    <Platforms>AnyCPU</Platforms>
     <UseWindowsForms>true</UseWindowsForms>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AssemblyName>SDRSharp.Plugin.Tetra</AssemblyName>
@@ -12,7 +11,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x86'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <WarningLevel>0</WarningLevel>
     <DebugType>full</DebugType>
@@ -21,7 +20,7 @@
     <OutputPath>..\Debug\</OutputPath>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x86'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 

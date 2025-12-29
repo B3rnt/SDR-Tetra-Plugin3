@@ -333,7 +333,7 @@
             this.gssiLabel.Name = "gssiLabel";
             this.gssiLabel.Size = new System.Drawing.Size(20, 13);
             this.gssiLabel.TabIndex = 71;
-            this.gssiLabel.Text = "GSSI";
+            this.gssiLabel.Text = "To";
             // 
             // label6
             // 
@@ -341,7 +341,7 @@
             this.label6.Name = "label6";
             this.label6.Size = new System.Drawing.Size(85, 13);
             this.label6.TabIndex = 70;
-            this.label6.Text = "---";
+            this.label6.Text = "0";
             // 
             // label7
             // 
@@ -349,7 +349,7 @@
             this.label7.Name = "label7";
             this.label7.Size = new System.Drawing.Size(85, 13);
             this.label7.TabIndex = 69;
-            this.label7.Text = "---";
+            this.label7.Text = "0";
             // 
             // label8
             // 
@@ -357,7 +357,7 @@
             this.label8.Name = "label8";
             this.label8.Size = new System.Drawing.Size(85, 13);
             this.label8.TabIndex = 68;
-            this.label8.Text = "---";
+            this.label8.Text = "0";
             // 
             // label9
             // 
@@ -365,7 +365,7 @@
             this.label9.Name = "label9";
             this.label9.Size = new System.Drawing.Size(85, 13);
             this.label9.TabIndex = 67;
-            this.label9.Text = "---";
+            this.label9.Text = "0";
             // 
             // issiLabel
             // 
@@ -374,7 +374,7 @@
             this.issiLabel.Name = "issiLabel";
             this.issiLabel.Size = new System.Drawing.Size(30, 13);
             this.issiLabel.TabIndex = 65;
-            this.issiLabel.Text = "ISSI";
+            this.issiLabel.Text = "From";
             // 
             // label4
             // 
@@ -382,7 +382,7 @@
             this.label4.Name = "label4";
             this.label4.Size = new System.Drawing.Size(64, 13);
             this.label4.TabIndex = 64;
-            this.label4.Text = "";
+            this.label4.Text = "0";
             // 
             // label3
             // 
@@ -390,7 +390,7 @@
             this.label3.Name = "label3";
             this.label3.Size = new System.Drawing.Size(64, 13);
             this.label3.TabIndex = 63;
-            this.label3.Text = "";
+            this.label3.Text = "0";
             // 
             // label2
             // 
@@ -398,7 +398,7 @@
             this.label2.Name = "label2";
             this.label2.Size = new System.Drawing.Size(64, 13);
             this.label2.TabIndex = 62;
-            this.label2.Text = "";
+            this.label2.Text = "0";
             // 
             // label1
             // 
@@ -406,7 +406,7 @@
             this.label1.Name = "label1";
             this.label1.Size = new System.Drawing.Size(64, 13);
             this.label1.TabIndex = 61;
-            this.label1.Text = "";
+            this.label1.Text = "0";
             // 
             // autoCheckBox
             // 

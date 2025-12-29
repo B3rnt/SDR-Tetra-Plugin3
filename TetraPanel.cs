@@ -1,7 +1,6 @@
 ﻿using SDRSharp.Common;
 using SDRSharp.Radio;
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
@@ -10,7 +9,6 @@ using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.VisualBasic;
 
@@ -19,8 +17,6 @@ namespace SDRSharp.Tetra
     public unsafe partial class TetraPanel : UserControl
     {
         private const float TwoPi = (float)(Math.PI * 2.0);
-        private long _lastUiFrequencyHz = -1;
-
         private const float Pi = (float)Math.PI;
         private const float PiDivTwo = (float)(Math.PI / 2.0);
         private const float PiDivFor = (float)(Math.PI / 4.0);
@@ -65,8 +61,6 @@ namespace SDRSharp.Tetra
 
         private TextFile _textFile = new TextFile();
         private TetraSettings _tetraSettings;
-
-        public bool MmOnlyMode => _tetraSettings != null && _tetraSettings.MmOnlyMode;
         private SettingsPersister _settingsPersister;
 
         private bool _needDisplayBufferUpdate;
@@ -114,8 +108,6 @@ namespace SDRSharp.Tetra
         private int _resetCounter;
         private bool _writerBlocked;
 
-        private int _numCommonScchCached = -1;
-
         private const string DefaultLogEntryRules = "date + time + mcc + mnc + la + cc + carrier + slot + callid + type + from + to + encryption + duplex";
         private const string DefaultLogFileNameRules = "date \\ frequency \\ mcc \"_\" mnc \"_\" la";
         private const string DefaultLogSeparator = " ; ";
@@ -139,8 +131,6 @@ namespace SDRSharp.Tetra
             try
             {
                 InitializeComponent();
-            // Ensure initial TS role labels are shown even before the first timer tick
-            UpdateTimeslotRoleLabels();
 
                 InitArrays();
 
@@ -164,16 +154,6 @@ namespace SDRSharp.Tetra
                 #endregion
 
                 UpdateGlobals();
-
-                // Apply initial GUI toggles from settings.
-                try
-                {
-                    display.Visible = _tetraSettings.ShowDiagram;
-                }
-                catch
-                {
-                    // Ignore designer/runtime differences.
-                }
 
                 blockNumericUpDown.Value = _tetraSettings.BlockedLevel;
 
@@ -477,7 +457,7 @@ namespace SDRSharp.Tetra
             _decodingThread.Start();
 
             _audioProcessor.Enabled = true;
-            _needDisplayBufferUpdate = _tetraSettings != null && _tetraSettings.ShowDiagram;
+            _needDisplayBufferUpdate = true;
         }
 
         private void DecoderStop()
@@ -547,10 +527,7 @@ namespace SDRSharp.Tetra
 
                 if (_tetraSettings.UdpEnabled)
                 {
-                    var rented = ArrayPool<byte>.Shared.Rent(BurstLengthSymbols * 2);
-                    ConvertAngleToDiBits(_symbolsBufferPtr, BurstLengthSymbols, rented);
-                    server.Send(rented, BurstLengthBits);
-                    ArrayPool<byte>.Shared.Return(rented);
+                    server.SendAsync(ConvertAngleToDiBits(_symbolsBufferPtr, BurstLengthSymbols), BurstLengthBits);
                 }
 
                 var audioChannel = this._decoder.Process(burst, this._outAudioBufferPtr);
@@ -635,9 +612,9 @@ namespace SDRSharp.Tetra
             }
         }
 
-        private void ConvertAngleToDiBits(float* angles, int sourceLength, byte[] bitsBuffer)
+        private byte[] ConvertAngleToDiBits(float* angles, int sourceLength)
         {
-            // bitsBuffer must be at least sourceLength*2 bytes.
+            var bitsBuffer = new byte[sourceLength * 2];
             float delta;
             int indexout = 0;
 
@@ -649,6 +626,7 @@ namespace SDRSharp.Tetra
                 bitsBuffer[indexout++] = Math.Abs(delta) > PiDivTwo ? (byte)1 : (byte)0;
             }
 
+            return bitsBuffer;
         }
 
         private int MonoToStereo(float* buffer, int monoLength)
@@ -956,11 +934,6 @@ namespace SDRSharp.Tetra
 
                 _sysInfo.TryGetValue(GlobalNames.Location_Area, ref _currentCell_LA);
 
-                // Cache number of SCCH on MCCH (SDRtetra: NumOfSCCH_on_MCCH)
-                int nCommonSc = -1;
-                if (_sysInfo.TryGetValue(GlobalNames.NumberOfCommon_SC, ref nCommonSc))
-                    _numCommonScchCached = nCommonSc;
-
                 var band = 0;
                 var offset = 0;
                 var carrier = 0;
@@ -982,40 +955,14 @@ namespace SDRSharp.Tetra
 
         private void MarkerTimer_Tick(object sender, EventArgs e)
         {
-// Reset UI state when tuning to a new frequency (prevents showing MCCH/SCCH from previous carrier)
-long freqHz = _controlInterface != null ? _controlInterface.Frequency : 0;
-if (_lastUiFrequencyHz < 0)
-{
-    _lastUiFrequencyHz = freqHz;
-}
-else if (Math.Abs(freqHz - _lastUiFrequencyHz) > 100) // >100 Hz change = retune
-{
-    ResetDecoder();
-    _numCommonScchCached = -1;
-    _lastUiFrequencyHz = freqHz;
-    UpdateTimeslotRoleLabels();
-}
-
-
             if (_displayBuffer != null)
             {
-                bool showDiagram = (_tetraSettings != null) && _tetraSettings.ShowDiagram;
-
-                // Keep the control visibility in sync (also handles runtime toggles).
-                if (display.Visible != showDiagram)
-                    display.Visible = showDiagram;
-
-                if (showDiagram && _dispayBufferReady)
+                if (_dispayBufferReady)
                 {
                     _dispayBufferReady = false;
                     display.Perform(_displayBufferPtr, _displayBuffer.Length);
-                    // Invalidate is cheaper than forcing an immediate synchronous redraw.
-                    display.Invalidate();
+                    display.Refresh();
                     _needDisplayBufferUpdate = true;
-                }
-                else if (!showDiagram)
-                {
-                    _needDisplayBufferUpdate = false;
                 }
             }
 
@@ -1037,8 +984,6 @@ else if (Math.Abs(freqHz - _lastUiFrequencyHz) > 100) // >100 Hz change = retune
             label8.Text = (_currentCellLoad[1].Type == 1 ? "g " : "") + _currentCellLoad[1].GroupName;
             label7.Text = (_currentCellLoad[2].Type == 1 ? "g " : "") + _currentCellLoad[2].GroupName;
             label6.Text = (_currentCellLoad[3].Type == 1 ? "g " : "") + _currentCellLoad[3].GroupName;
-
-            UpdateTimeslotRoleLabels();
 
             _activeCounter1--;
             if (_activeCounter1 < 0)
@@ -1136,11 +1081,6 @@ else if (Math.Abs(freqHz - _lastUiFrequencyHz) > 100) // >100 Hz change = retune
                 mncLabel.Text = "MNC:" + _currentCell_MNC.ToString();
                 colorLabel.Text = "Color:" + _currentCell_CC.ToString();
                 connectLabel.Visible = _decoder.BurstReceived;
-                var carrierIndex = (_mainCell_Carrier >= 0 && _currentCell_Carrier >= 0) ? (_currentCell_Carrier - _mainCell_Carrier) : 0;
-                var receivedPct = 100.0f - _decoder.Mer;
-                if (receivedPct < 0) receivedPct = 0;
-                if (receivedPct > 100) receivedPct = 100;
-                connectLabel.Text = string.Format("Received  {0:0.00}% [{1}]", receivedPct, carrierIndex);
                 laLabel.Text = "LA:" + _currentCell_LA.ToString();
                 mainCarrierLabel.Text = _mainCell_Carrier.ToString();
                 mainFrequencyLinkLabel.Text = string.Format("{0:0,0.000###} MHz", _mainCell_Frequency * 0.000001m);
@@ -1245,89 +1185,6 @@ else if (Math.Abs(freqHz - _lastUiFrequencyHz) > 100) // >100 Hz change = retune
             }
         }
 
-
-private void UpdateTimeslotRoleLabels()
-        {
-            // SDRtetra behaviour:
-            // - Only show MCCH/SCCH mapping when we are tuned to the MAIN carrier (carrier index 0).
-            // - On non-main carriers, treat all timeslots as traffic (no MCCH/SCCH).
-            // - "Received" carrier index is (CurrentCarrier - MainCarrier).
-            // - Show "cX" in the ISSI column for traffic slots (like SDRtetra screenshot).
-
-            int carrierIndex = (_mainCell_Carrier >= 0 && _currentCell_Carrier >= 0) ? (_currentCell_Carrier - _mainCell_Carrier) : 0;
-            bool onMainCarrier = (carrierIndex == 0);
-
-            int nScch = _numCommonScchCached;
-            if (nScch < 0) nScch = 0;
-
-            string RoleForTs(int ts)
-            {
-                if (!onMainCarrier)
-                    return "---";
-
-                if (ts == 1)
-                    return "MCCH";
-
-                if (nScch > 0 && ts >= 2 && ts <= (1 + nScch))
-                    return "SCCH " + (ts - 1);
-
-                return "---";
-            }
-
-            string role1 = _ch1IsActive ? "TCH" : RoleForTs(1);
-            string role2 = _ch2IsActive ? "TCH" : RoleForTs(2);
-            string role3 = _ch3IsActive ? "TCH" : RoleForTs(3);
-            string role4 = _ch4IsActive ? "TCH" : RoleForTs(4);
-
-            // keep selection labels compact
-            ch1RadioButton.Text = "Timeslot 1";
-            ch2RadioButton.Text = "Timeslot 2";
-            ch3RadioButton.Text = "Timeslot 3";
-            ch4RadioButton.Text = "Timeslot 4";
-
-            // GSSI column (MCCH/SCCH/TCH/---)
-            label6.Text = role1;
-            label7.Text = role2;
-            label8.Text = role3;
-            label9.Text = role4;
-
-            // ISSI column shows carrier for traffic slots (and for active calls)
-            string carrierTag = "c" + carrierIndex;
-
-            bool TsIsTraffic(int ts)
-            {
-                if (!onMainCarrier) return true; // all slots are traffic-ish when not on main carrier
-                if (ts == 1) return false; // MCCH
-                if (nScch > 0 && ts >= 2 && ts <= (1 + nScch)) return false; // SCCH
-                return true; // remaining are traffic
-            }
-
-            label1.Text = (TsIsTraffic(1) ? carrierTag : string.Empty);
-            label2.Text = (TsIsTraffic(2) ? carrierTag : string.Empty);
-            label3.Text = (TsIsTraffic(3) ? carrierTag : string.Empty);
-            label4.Text = (TsIsTraffic(4) ? carrierTag : string.Empty);
-        }
-
-private static string GetRoleText(int timeslot, int nCommonSc, bool isActive)
-{
-    if (isActive)
-        return "TCH";
-
-    if (timeslot == 1)
-        return "MCCH";
-
-    if (nCommonSc > 0)
-    {
-        int lastScchTs = 1 + nCommonSc; // TS2..TS(lastScchTs)
-        if (timeslot >= 2 && timeslot <= lastScchTs)
-            return "SCCH" + (timeslot - 1);
-    }
-
-    return "---";
-}
-
-
-
         private void Ch1RadioButton_CheckedChanged(object sender, EventArgs e)
         {
             _channel1Listen = ch1RadioButton.Checked;
@@ -1382,21 +1239,6 @@ private static string GetRoleText(int timeslot, int nCommonSc, bool isActive)
         private void UpdateGlobals()
         {
             Global.IgnoreEncryptedSpeech = _tetraSettings.IgnoreEncodedSpeech;
-
-            // Apply UI-related settings immediately.
-            try
-            {
-                display.Visible = _tetraSettings.ShowDiagram;
-                if (!_tetraSettings.ShowDiagram)
-                {
-                    _needDisplayBufferUpdate = false;
-                    _dispayBufferReady = false;
-                }
-            }
-            catch
-            {
-                // Ignore if UI control not yet created.
-            }
         }
 
         private void BlockNumericUpDown_ValueChanged(object sender, EventArgs e)

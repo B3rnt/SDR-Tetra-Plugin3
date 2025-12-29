@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace SDRSharp.Tetra
@@ -13,14 +14,6 @@ namespace SDRSharp.Tetra
 
         public delegate void SyncInfoReadyDelegate(ReceivedData syncInfo);
         public event SyncInfoReadyDelegate SyncInfoReady;
-
-        // UI batching: reduce allocations (List copies) and BeginInvoke frequency
-        private readonly object _dataBatchLock = new object();
-        private readonly List<ReceivedData> _batchedData = new List<ReceivedData>(256);
-        private bool _flushPosted;
-        private long _lastFlushTicks;
-        private const int FlushIntervalMs = 100; // max 10 UI updates/sec
-
 
         private PhyLevel _phyLevel = new PhyLevel();
         private LowerMacLevel _lowerMac = new LowerMacLevel();
@@ -44,7 +37,6 @@ namespace SDRSharp.Tetra
         private float _badBurstCounter;
         private float _averageBer;
         private Control _owner;
-        private TetraPanel _panel;
         private int _fpass;
         private unsafe void* _ch1InitStruct;
         private unsafe void* _ch2InitStruct;
@@ -66,11 +58,8 @@ namespace SDRSharp.Tetra
         public bool HaveErrors { get { return _haveErrors; } }
 
 
-        public TetraDecoder(TetraPanel owner)
+        public TetraDecoder(Control owner)
         {
-            _owner = owner;
-            _panel = owner;
-
             _bbBuffer = UnsafeBuffer.Create(30);
             _bbBufferPtr = (byte*)_bbBuffer;
             _bkn1Buffer = UnsafeBuffer.Create(216);
@@ -80,7 +69,7 @@ namespace SDRSharp.Tetra
             _sb1Buffer = UnsafeBuffer.Create(120);
             _sb1BufferPtr = (byte*)_sb1Buffer;
 
-            
+            _owner = owner;
 
             _fpass = 1;
 
@@ -97,8 +86,6 @@ namespace SDRSharp.Tetra
 
         public int Process(Burst burst, float* audioOut)
         {
-            bool mmOnly = _panel != null && _panel.MmOnlyMode;
-
             var trafficChannel = 0;
 
             BurstReceived = (burst.Type != BurstType.None);
@@ -273,19 +260,10 @@ namespace SDRSharp.Tetra
                         {
                             //Debug.Write(" slot 12:voice");
 
-                            if (!mmOnly)
-                        {
                             _logicChannel = _lowerMac.ExtractVoiceDataFromBKN1BKN2(_bkn1BufferPtr, _bkn2BufferPtr, _bkn1Buffer.Length);
                             var itsAudio = DecodeAudio(audioOut, _logicChannel.Ptr, _logicChannel.Length, false, _networkTime.TimeSlot);
                             trafficChannel = itsAudio ? _networkTime.TimeSlot : 0;
                             break;
-                        }
-                        else
-                        {
-                            // MM-only: skip voice/traffic decode
-                            trafficChannel = 0;
-                            break;
-                        }
                         }
                         else
                         {
@@ -335,19 +313,10 @@ namespace SDRSharp.Tetra
                             || ((TetraMode == Mode.DMO) && (!_networkTime.Frame18Slave) && (_networkTime.TimeSlotSlave == 1) && (!_parse.HalfSlotStolen)))
                         {
                             //Debug.Write(" slot 2:voice");
-                            if (!mmOnly)
-                        {
                             _logicChannel = _lowerMac.ExtractVoiceDataFromBKN2(_bkn2BufferPtr, _bkn2Buffer.Length);
                             var itsAudio = DecodeAudio(audioOut, _logicChannel.Ptr, _logicChannel.Length, true, _networkTime.TimeSlot);
                             trafficChannel = itsAudio ? _networkTime.TimeSlot : 0;
                             break;
-                        }
-                        else
-                        {
-                            // MM-only: skip voice/traffic decode
-                            trafficChannel = 0;
-                            break;
-                        }
                         }
                         else
                         {
@@ -394,60 +363,10 @@ namespace SDRSharp.Tetra
 
         public void UpdateData(List<ReceivedData> data)
         {
-            if (DataReady == null || data == null || data.Count == 0)
-                return;
-
-            // Batch data to reduce per-burst allocations (List copies) and UI thread churn.
-            bool shouldPost = false;
-
-            lock (_dataBatchLock)
+            if (DataReady != null)
             {
-                _batchedData.AddRange(data);
-
-                long nowTicks = Stopwatch.GetTimestamp();
-                if (!_flushPosted && ElapsedMs(_lastFlushTicks, nowTicks) >= FlushIntervalMs)
-                {
-                    _flushPosted = true;
-                    shouldPost = true;
-                }
+                _owner.BeginInvoke(DataReady, data.ToList());
             }
-
-            if (shouldPost)
-            {
-                _owner.BeginInvoke((Action)FlushBatchedData);
-            }
-        }
-
-        private void FlushBatchedData()
-        {
-            List<ReceivedData> snapshot = null;
-
-            lock (_dataBatchLock)
-            {
-                if (_batchedData.Count == 0)
-                {
-                    _flushPosted = false;
-                    _lastFlushTicks = Stopwatch.GetTimestamp();
-                    return;
-                }
-
-                // Copy once per flush. (We can't reuse the same List instance safely because subscribers
-                // might keep a reference after the event returns.)
-                snapshot = new List<ReceivedData>(_batchedData.Count);
-                snapshot.AddRange(_batchedData);
-                _batchedData.Clear();
-
-                _flushPosted = false;
-                _lastFlushTicks = Stopwatch.GetTimestamp();
-            }
-
-            DataReady?.Invoke(snapshot);
-        }
-
-        private static long ElapsedMs(long startTicks, long endTicks)
-        {
-            if (startTicks == 0) return long.MaxValue;
-            return (long)((endTicks - startTicks) * 1000.0 / Stopwatch.Frequency);
         }
 
         private void UpdatePublicProp()

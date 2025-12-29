@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
@@ -197,8 +196,12 @@ namespace SDRSharp.Tetra
                     break;
 
                 default:
-                        result.Add(GlobalNames.UnknowData, 1);
-                        return;
+                    offset = Global.ParseParams(channelData, offset, _sds_SimpleTextRules, result);
+                    ParseTextMessage(channelData, offset, result);
+                    result.Add(GlobalNames.UnknowData, 1);
+                    break;
+
+
             }
         }
 
@@ -238,13 +241,12 @@ namespace SDRSharp.Tetra
                         case LocationTypeExtension.Report_basic_location_parameters:
                         case LocationTypeExtension.Report_trigger:
                         default:
-                                result.Add(GlobalNames.UnknowData, 1);
-                                return;
+                            result.Add(GlobalNames.UnknowData, 1);
+                            break;
                     }
                     break;
                 default:
-                        result.Add(GlobalNames.UnknowData, 1);
-                        return;
+                    break;
             }
         }
 
@@ -336,8 +338,9 @@ namespace SDRSharp.Tetra
                     break;
 
                 default:
-                        result.Add(GlobalNames.UnknowData, 1);
-                        return;
+                    break;
+                    result.Add(GlobalNames.UnknowData, 1);
+                    return;
             }
 
             Decoder dec = encTable.GetDecoder();
@@ -346,27 +349,19 @@ namespace SDRSharp.Tetra
             if (messageLength < 0) return;
 
             string message;
-            byte[] rented = ArrayPool<byte>.Shared.Rent(messageLength);
-            try
-            {
-                int index = 0;
-                int remaining = messageLength;
+            byte[] symbolsArray = new byte[messageLength];
+            int index = 0;
 
-                while (remaining > 0)
-                {
-                    rented[index++] = TetraUtils.BitsToByte(channelData.Ptr, offset, symbLength);
-                    offset += symbLength;
-                    remaining--;
-                }
-
-                message = encTable.GetString(rented, 0, index);
-            }
-            finally
+            while (messageLength > 0)
             {
-                ArrayPool<byte>.Shared.Return(rented);
+                symbolsArray[index++] = TetraUtils.BitsToByte(channelData.Ptr, offset, symbLength);
+                offset += symbLength;
+                messageLength--;
             }
 
-Debug.WriteLine(" data:" + message);
+            message = encTable.GetString(symbolsArray);
+
+            Debug.WriteLine(" data:" + message);
         }
 
         private unsafe void ParseLongSDS(LogicChannel channelData, int offset, ReceivedData result)
