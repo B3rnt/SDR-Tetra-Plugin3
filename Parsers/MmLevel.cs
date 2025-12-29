@@ -136,10 +136,24 @@ namespace SDRSharp.Tetra
                     break;
 
                 case MmPduType.D_MM_STATUS:
+                    // Was: alleen Status_downlink (6 bits)
+                    // Nu: Status_downlink (6 bits) + MM_SSI (24 bits) direct uit PDU
                     if (offset + 6 <= channelData.Length)
                     {
                         result.SetValue(GlobalNames.Status_downlink, TetraUtils.BitsToInt32(channelData.Ptr, offset, 6));
                         offset += 6;
+
+                        // ISSI (MM_SSI) toevoegen uit PDU
+                        if (offset + 24 <= channelData.Length)
+                        {
+                            result.SetValue(GlobalNames.MM_SSI, TetraUtils.BitsToInt32(channelData.Ptr, offset, 24));
+                            offset += 24;
+                        }
+                        else
+                        {
+                            // Geen fallback; alleen aangeven dat buffer te klein is
+                            result.SetValue(GlobalNames.OutOfBuffer, 1);
+                        }
                     }
                     else result.SetValue(GlobalNames.OutOfBuffer, 1);
                     break;
@@ -191,6 +205,17 @@ namespace SDRSharp.Tetra
                     {
                         result.SetValue(GlobalNames.CK_provision_flag, TetraUtils.BitsToInt32(channelData.Ptr, offset, 1));
                         offset += 1;
+                    }
+                    else result.SetValue(GlobalNames.OutOfBuffer, 1);
+                    break;
+
+                // D_ENABLE bestaat niet in jouw snippet; toegevoegd: lees direct 24-bit MM_SSI uit PDU.
+                // Als jouw D_ENABLE anders is opgebouwd: zet dit op de juiste bitpositie/velden.
+                case MmPduType.D_ENABLE:
+                    if (offset + 24 <= channelData.Length)
+                    {
+                        result.SetValue(GlobalNames.MM_SSI, TetraUtils.BitsToInt32(channelData.Ptr, offset, 24));
+                        offset += 24;
                     }
                     else result.SetValue(GlobalNames.OutOfBuffer, 1);
                     break;
@@ -564,6 +589,29 @@ namespace SDRSharp.Tetra
                         break;
                     }
 
+                    case MmPduType.D_LOCATION_UPDATE_COMMAND:
+                    {
+                        sb.Append("MM D_LOCATION_UPDATE_COMMAND");
+                        if (ssi > 0) { sb.Append(" SSI: "); sb.Append(ssi); }
+                        break;
+                    }
+
+                    case MmPduType.D_MM_STATUS:
+                    {
+                        int st = parsed.Value(GlobalNames.Status_downlink);
+                        sb.Append("MM D_MM_STATUS status=");
+                        sb.Append(st);
+                        if (ssi > 0) { sb.Append(" SSI: "); sb.Append(ssi); }
+                        break;
+                    }
+
+                    case MmPduType.D_ENABLE:
+                    {
+                        sb.Append("MM D_ENABLE");
+                        if (ssi > 0) { sb.Append(" SSI: "); sb.Append(ssi); }
+                        break;
+                    }
+
                     case MmPduType.D_OTAR:
                     {
                         sb.Append("MM D_OTAR");
@@ -574,11 +622,20 @@ namespace SDRSharp.Tetra
                     {
                         sb.Append("MM ");
                         sb.Append(mmType.ToString());
+                        if (ssi > 0) { sb.Append(" SSI: "); sb.Append(ssi); }
                         break;
                     }
                 }
 
-                if (mmType == MmPduType.D_LOCATION_UPDATE_ACCEPT && isItsi)
+                // RAW LOGGING:
+                // - Niet meer bij ITSI attach (LU accept isItsi) -> verwijderd
+                // - Wel bij D_MM_STATUS, D_LOCATION_UPDATE_COMMAND, D_ENABLE
+                bool logRaw =
+                    (mmType == MmPduType.D_MM_STATUS) ||
+                    (mmType == MmPduType.D_LOCATION_UPDATE_COMMAND) ||
+                    (mmType == MmPduType.D_ENABLE);
+
+                if (logRaw)
                 {
                     sb.Append("  raw=");
                     sb.Append(BitsToHex(channelData.Ptr, bitOffset, bitLength));
