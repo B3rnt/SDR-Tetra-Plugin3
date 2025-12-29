@@ -996,6 +996,13 @@ namespace SDRSharp.Tetra
     }
     public class TetraSettings
     {
+        public TetraSettings()
+        {
+            // Defaults. XmlSerializer will call this constructor and then set values present in the XML.
+            // This means newly added settings keep a sensible default when opening an older settings file.
+            ShowDiagram = true;
+        }
+
         public string LogFileNameRules { get; set; }
 
         public string LogWriteFolder { get; set; }
@@ -1023,5 +1030,10 @@ namespace SDRSharp.Tetra
         public bool AfcDisabled { get; set; }
 
         public bool MmOnlyMode { get; set; }
+
+        /// <summary>
+        /// Show the live symbol/diagram display in the GUI.
+        /// </summary>
+        public bool ShowDiagram { get; set; }
     }
 }

@@ -165,6 +165,16 @@ namespace SDRSharp.Tetra
 
                 UpdateGlobals();
 
+                // Apply initial GUI toggles from settings.
+                try
+                {
+                    display.Visible = _tetraSettings.ShowDiagram;
+                }
+                catch
+                {
+                    // Ignore designer/runtime differences.
+                }
+
                 blockNumericUpDown.Value = _tetraSettings.BlockedLevel;
 
                 _networkBase = NetworkBaseDeserializer(_tetraSettings.NetworkBase);
@@ -467,7 +477,7 @@ namespace SDRSharp.Tetra
             _decodingThread.Start();
 
             _audioProcessor.Enabled = true;
-            _needDisplayBufferUpdate = true;
+            _needDisplayBufferUpdate = _tetraSettings != null && _tetraSettings.ShowDiagram;
         }
 
         private void DecoderStop()
@@ -989,12 +999,23 @@ else if (Math.Abs(freqHz - _lastUiFrequencyHz) > 100) // >100 Hz change = retune
 
             if (_displayBuffer != null)
             {
-                if (_dispayBufferReady)
+                bool showDiagram = (_tetraSettings != null) && _tetraSettings.ShowDiagram;
+
+                // Keep the control visibility in sync (also handles runtime toggles).
+                if (display.Visible != showDiagram)
+                    display.Visible = showDiagram;
+
+                if (showDiagram && _dispayBufferReady)
                 {
                     _dispayBufferReady = false;
                     display.Perform(_displayBufferPtr, _displayBuffer.Length);
-                    display.Refresh();
+                    // Invalidate is cheaper than forcing an immediate synchronous redraw.
+                    display.Invalidate();
                     _needDisplayBufferUpdate = true;
+                }
+                else if (!showDiagram)
+                {
+                    _needDisplayBufferUpdate = false;
                 }
             }
 
@@ -1361,6 +1382,21 @@ private static string GetRoleText(int timeslot, int nCommonSc, bool isActive)
         private void UpdateGlobals()
         {
             Global.IgnoreEncryptedSpeech = _tetraSettings.IgnoreEncodedSpeech;
+
+            // Apply UI-related settings immediately.
+            try
+            {
+                display.Visible = _tetraSettings.ShowDiagram;
+                if (!_tetraSettings.ShowDiagram)
+                {
+                    _needDisplayBufferUpdate = false;
+                    _dispayBufferReady = false;
+                }
+            }
+            catch
+            {
+                // Ignore if UI control not yet created.
+            }
         }
 
         private void BlockNumericUpDown_ValueChanged(object sender, EventArgs e)
