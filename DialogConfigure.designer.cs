@@ -35,6 +35,7 @@
             this.udpPortNumericUpDown = new System.Windows.Forms.NumericUpDown();
             this.enableUdpOutputCheckBox = new System.Windows.Forms.CheckBox();
             this.ignoreEncodedSpeechCheckBox = new System.Windows.Forms.CheckBox();
+            this.mmOnlyModeCheckBox = new System.Windows.Forms.CheckBox();
             this.logPage = new System.Windows.Forms.TabPage();
             this.label1 = new System.Windows.Forms.Label();
             this.LogEntryLabel = new System.Windows.Forms.Label();
@@ -86,6 +87,7 @@
             this.tabPage1.Controls.Add(this.afcCheckBox);
             this.tabPage1.Controls.Add(this.udpPortNumericUpDown);
             this.tabPage1.Controls.Add(this.enableUdpOutputCheckBox);
+            this.tabPage1.Controls.Add(this.mmOnlyModeCheckBox);
             this.tabPage1.Controls.Add(this.ignoreEncodedSpeechCheckBox);
             this.tabPage1.Location = new System.Drawing.Point(4, 22);
             this.tabPage1.Name = "tabPage1";
@@ -103,6 +105,17 @@
             this.afcCheckBox.TabIndex = 5;
             this.afcCheckBox.Text = "Disable AFC (automatic frequency control)";
             this.afcCheckBox.UseVisualStyleBackColor = true;
+            // 
+            // mmOnlyModeCheckBox
+            // 
+            this.mmOnlyModeCheckBox.AutoSize = true;
+            this.mmOnlyModeCheckBox.Location = new System.Drawing.Point(6, 87);
+            this.mmOnlyModeCheckBox.Name = "mmOnlyModeCheckBox";
+            this.mmOnlyModeCheckBox.Size = new System.Drawing.Size(332, 17);
+            this.mmOnlyModeCheckBox.TabIndex = 6;
+            this.mmOnlyModeCheckBox.Text = "MM-only mode (disable voice/traffic decode for lower CPU)";
+            this.mmOnlyModeCheckBox.UseVisualStyleBackColor = true;
+
             // 
             // udpPortNumericUpDown
             // 
@@ -327,6 +340,7 @@
         private System.Windows.Forms.TabPage tabPage1;
         private System.Windows.Forms.NumericUpDown udpPortNumericUpDown;
         private System.Windows.Forms.CheckBox enableUdpOutputCheckBox;
+        private System.Windows.Forms.CheckBox mmOnlyModeCheckBox;
         private System.Windows.Forms.CheckBox ignoreEncodedSpeechCheckBox;
         private System.Windows.Forms.CheckBox afcCheckBox;
     }

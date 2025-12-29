@@ -1021,5 +1021,7 @@ namespace SDRSharp.Tetra
         public int UdpPort { get; set; }
 
         public bool AfcDisabled { get; set; }
+
+        public bool MmOnlyMode { get; set; }
     }
 }

@@ -1,6 +1,7 @@
 ﻿using SDRSharp.Common;
 using SDRSharp.Radio;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
@@ -9,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.VisualBasic;
 
@@ -63,6 +65,8 @@ namespace SDRSharp.Tetra
 
         private TextFile _textFile = new TextFile();
         private TetraSettings _tetraSettings;
+
+        public bool MmOnlyMode => _tetraSettings != null && _tetraSettings.MmOnlyMode;
         private SettingsPersister _settingsPersister;
 
         private bool _needDisplayBufferUpdate;
@@ -533,7 +537,10 @@ namespace SDRSharp.Tetra
 
                 if (_tetraSettings.UdpEnabled)
                 {
-                    server.SendAsync(ConvertAngleToDiBits(_symbolsBufferPtr, BurstLengthSymbols), BurstLengthBits);
+                    var rented = ArrayPool<byte>.Shared.Rent(BurstLengthSymbols * 2);
+                    ConvertAngleToDiBits(_symbolsBufferPtr, BurstLengthSymbols, rented);
+                    server.Send(rented, BurstLengthBits);
+                    ArrayPool<byte>.Shared.Return(rented);
                 }
 
                 var audioChannel = this._decoder.Process(burst, this._outAudioBufferPtr);
@@ -618,9 +625,9 @@ namespace SDRSharp.Tetra
             }
         }
 
-        private byte[] ConvertAngleToDiBits(float* angles, int sourceLength)
+        private void ConvertAngleToDiBits(float* angles, int sourceLength, byte[] bitsBuffer)
         {
-            var bitsBuffer = new byte[sourceLength * 2];
+            // bitsBuffer must be at least sourceLength*2 bytes.
             float delta;
             int indexout = 0;
 
@@ -632,7 +639,6 @@ namespace SDRSharp.Tetra
                 bitsBuffer[indexout++] = Math.Abs(delta) > PiDivTwo ? (byte)1 : (byte)0;
             }
 
-            return bitsBuffer;
         }
 
         private int MonoToStereo(float* buffer, int monoLength)

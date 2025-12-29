@@ -5,6 +5,36 @@ namespace SDRSharp.Tetra
 {
     unsafe class MmLevel
     {
+
+[ThreadStatic]
+private static StringBuilder _sbCache;
+
+private static StringBuilder AcquireStringBuilder(int capacity)
+{
+    var sb = _sbCache;
+    if (sb == null)
+        return new StringBuilder(capacity);
+
+    _sbCache = null;
+    sb.Clear();
+    if (sb.Capacity < capacity)
+        sb.Capacity = capacity;
+    return sb;
+}
+
+private static void ReleaseStringBuilder(StringBuilder sb)
+{
+    if (sb == null) return;
+
+    // Keep only reasonably sized builders to avoid holding large buffers forever.
+    if (sb.Capacity <= 4096)
+    {
+        sb.Clear();
+        _sbCache = sb;
+    }
+}
+        private static readonly char[] Hex = "0123456789ABCDEF".ToCharArray();
+
         private readonly Rules[] _locationUpdateAcceptRules = new Rules[]
         {
             new Rules(GlobalNames.Location_update_accept_type, 3, RulesType.Direct, 0, 0, 0),
@@ -393,7 +423,7 @@ namespace SDRSharp.Tetra
         {
             try
             {
-                var sb = new StringBuilder(512);
+                var sb = AcquireStringBuilder(512);
 
                 sb.Append(DateTime.Now.ToString("HH:mm:ss"));
                 sb.Append("  ");
@@ -542,7 +572,10 @@ namespace SDRSharp.Tetra
                     sb.Append(BitsToHex(channelData.Ptr, bitOffset, bitLength));
                 }
 
-                new TextFile().Write(sb.ToString(), DefaultPath);
+                var msg = sb.ToString();
+
+                ReleaseStringBuilder(sb);
+                new TextFile().Write(msg, DefaultPath);
             }
             catch
             {
@@ -570,21 +603,29 @@ namespace SDRSharp.Tetra
         private static string BitsToHex(byte* ptr, int bitOffset, int bitLength)
         {
             if (bitLength <= 0) return string.Empty;
-            int byteLen = (bitLength + 7) / 8;
-            byte[] bytes = new byte[byteLen];
 
-            for (int i = 0; i < bitLength; i++)
+            int byteLen = (bitLength + 7) / 8;
+            var sb = AcquireStringBuilder(byteLen * 2);
+
+            for (int b = 0; b < byteLen; b++)
             {
-                int bit = ptr[bitOffset + i] & 0x1;
-                int byteIndex = i / 8;
-                int bitInByte = 7 - (i % 8);
-                bytes[byteIndex] |= (byte)(bit << bitInByte);
+                int v = 0;
+                int baseBit = b * 8;
+
+                for (int j = 0; j < 8; j++)
+                {
+                    int i = baseBit + j;
+                    int bit = (i < bitLength) ? (ptr[bitOffset + i] & 0x1) : 0;
+                    v |= bit << (7 - j);
+                }
+
+                sb.Append(Hex[(v >> 4) & 0xF]);
+                sb.Append(Hex[v & 0xF]);
             }
 
-            var sb = new StringBuilder(byteLen * 2);
-            for (int i = 0; i < bytes.Length; i++)
-                sb.Append(bytes[i].ToString("X2"));
-            return sb.ToString();
+            var s = sb.ToString();
+            ReleaseStringBuilder(sb);
+            return s;
         }
     }
 }

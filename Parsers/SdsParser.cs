@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
@@ -345,19 +346,27 @@ namespace SDRSharp.Tetra
             if (messageLength < 0) return;
 
             string message;
-            byte[] symbolsArray = new byte[messageLength];
-            int index = 0;
-
-            while (messageLength > 0)
+            byte[] rented = ArrayPool<byte>.Shared.Rent(messageLength);
+            try
             {
-                symbolsArray[index++] = TetraUtils.BitsToByte(channelData.Ptr, offset, symbLength);
-                offset += symbLength;
-                messageLength--;
+                int index = 0;
+                int remaining = messageLength;
+
+                while (remaining > 0)
+                {
+                    rented[index++] = TetraUtils.BitsToByte(channelData.Ptr, offset, symbLength);
+                    offset += symbLength;
+                    remaining--;
+                }
+
+                message = encTable.GetString(rented, 0, index);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(rented);
             }
 
-            message = encTable.GetString(symbolsArray);
-
-            Debug.WriteLine(" data:" + message);
+Debug.WriteLine(" data:" + message);
         }
 
         private unsafe void ParseLongSDS(LogicChannel channelData, int offset, ReceivedData result)
