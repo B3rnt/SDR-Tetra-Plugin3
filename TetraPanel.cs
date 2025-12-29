@@ -1,6 +1,7 @@
 ﻿using SDRSharp.Common;
 using SDRSharp.Radio;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
@@ -9,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.VisualBasic;
 
@@ -17,6 +19,8 @@ namespace SDRSharp.Tetra
     public unsafe partial class TetraPanel : UserControl
     {
         private const float TwoPi = (float)(Math.PI * 2.0);
+        private long _lastUiFrequencyHz = -1;
+
         private const float Pi = (float)Math.PI;
         private const float PiDivTwo = (float)(Math.PI / 2.0);
         private const float PiDivFor = (float)(Math.PI / 4.0);
@@ -38,7 +42,17 @@ namespace SDRSharp.Tetra
         private UnsafeBuffer _symbolsBuffer;
         private float* _symbolsBufferPtr;
 
-        private ComplexFifoStream _radioFifoBuffer;
+        private System.Collections.Generic.List<MastReceiver> _masts;
+
+        private System.Windows.Forms.DataGridView _mastGrid;
+        private BindingList<MastGridRow> _mastRows;
+        private int _activeMastIndex = 0;
+
+        private int _activeMastIndex;
+        private UnsafeBuffer _ddcOutBuffer;
+        private Complex* _ddcOutBufferPtr;
+        private int _ddcOutCapacity;
+
         private UnsafeBuffer _displayBuffer;
         private float* _displayBufferPtr;
 
@@ -61,6 +75,8 @@ namespace SDRSharp.Tetra
 
         private TextFile _textFile = new TextFile();
         private TetraSettings _tetraSettings;
+
+        public bool MmOnlyMode => _tetraSettings != null && _tetraSettings.MmOnlyMode;
         private SettingsPersister _settingsPersister;
 
         private bool _needDisplayBufferUpdate;
@@ -108,6 +124,8 @@ namespace SDRSharp.Tetra
         private int _resetCounter;
         private bool _writerBlocked;
 
+        private int _numCommonScchCached = -1;
+
         private const string DefaultLogEntryRules = "date + time + mcc + mnc + la + cc + carrier + slot + callid + type + from + to + encryption + duplex";
         private const string DefaultLogFileNameRules = "date \\ frequency \\ mcc \"_\" mnc \"_\" la";
         private const string DefaultLogSeparator = " ; ";
@@ -131,6 +149,8 @@ namespace SDRSharp.Tetra
             try
             {
                 InitializeComponent();
+            // Ensure initial TS role labels are shown even before the first timer tick
+            UpdateTimeslotRoleLabels();
 
                 InitArrays();
 
@@ -155,25 +175,58 @@ namespace SDRSharp.Tetra
 
                 UpdateGlobals();
 
+                // Apply initial GUI toggles from settings.
+                try
+                {
+                    display.Visible = _tetraSettings.ShowDiagram;
+                }
+                catch
+                {
+                    // Ignore designer/runtime differences.
+                }
+
                 blockNumericUpDown.Value = _tetraSettings.BlockedLevel;
 
                 _networkBase = NetworkBaseDeserializer(_tetraSettings.NetworkBase);
                 _needGroupsUpdate = true;
 
                 _controlInterface = control;
+                // Multi-mast support: load configured mast list (frequencies inside current SDR bandwidth)
+                if (_tetraSettings.Masts == null)
+                    _tetraSettings.Masts = new System.Collections.Generic.List<MastConfig>();
+
+                if (_tetraSettings.Masts.Count == 0)
+                {
+                    // Default: current tuned frequency
+                    _tetraSettings.Masts.Add(new MastConfig { Name = "Mast 1", FrequencyHz = control.Frequency, Enabled = true });
+                }
+
+                _masts = new System.Collections.Generic.List<MastReceiver>();
+                foreach (var mc in _tetraSettings.Masts)
+                {
+                    var r = new MastReceiver(mc, this);
+                    _masts.Add(r);
+                }
+
+                SetupMastGrid();
+
+                _activeMastIndex = 0;
+                if (_masts.Count > 0)
+                    _masts[0].ListenAudio = true;
+
 
                 _infoWindow = new NetInfoWindow();
                 _infoWindow.FormClosing += _infoWindow_FormClosing;
 
                 _ifProcessor = new IFProcessor();
-                _controlInterface.RegisterStreamHook(_ifProcessor, ProcessorType.DecimatedAndFilteredIQ);
+                _controlInterface.RegisterStreamHook(_ifProcessor, ProcessorType.RawIQ);
                 _ifProcessor.IQReady += IQSamplesAvailable;
 
                 _audioProcessor = new AudioProcessor();
                 _controlInterface.RegisterStreamHook(_audioProcessor, ProcessorType.DemodulatorOutput);
                 _audioProcessor.AudioReady += AudioSamplesNedeed;
 
-                _decoder = new TetraDecoder(this);
+                _decoder = (_masts != null && _masts.Count > 0) ? _masts[_activeMastIndex].Decoder : new TetraDecoder(this);
                 _decoder.DataReady += _decoder_DataReady;
                 _decoder.SyncInfoReady += _decoder_SyncInfoReady;
 
@@ -402,13 +455,43 @@ namespace SDRSharp.Tetra
         /// <param name="length"></param>
         public unsafe void IQSamplesAvailable(Complex* samples, double samplerate, int length)
         {
-            this._iqSamplerate = samplerate;
-            if (this._radioFifoBuffer == null)
-                this._radioFifoBuffer = new ComplexFifoStream(BlockMode.None);
-            if ((double)this._radioFifoBuffer.Length < samplerate)
-                this._radioFifoBuffer.Write(samples, length);
-            else
-                ++this._lostBuffers;
+            _iqSamplerate = samplerate;
+            if (_masts == null || _masts.Count == 0)
+                return;
+
+            // allocate temp output once (worst case: decim=1 => length outputs)
+            if (_ddcOutBuffer == null || _ddcOutCapacity < length + 8)
+            {
+                _ddcOutCapacity = length + 8;
+                _ddcOutBuffer = UnsafeBuffer.Create(_ddcOutCapacity, sizeof(Complex));
+                _ddcOutBufferPtr = (Complex*)_ddcOutBuffer;
+            }
+
+            long centerHz = _controlInterface != null ? _controlInterface.Frequency : 0;
+
+            for (int mi = 0; mi < _masts.Count; mi++)
+            {
+                var mast = _masts[mi];
+                if (mast == null || mast.Config == null || !mast.Config.Enabled)
+                    continue;
+
+                mast.EnsureDownconverter(samplerate);
+
+                double offsetHz = mast.Config.FrequencyHz - centerHz;
+                int outLen = mast.Downconverter.Process(samples, length, samplerate, offsetHz, _ddcOutBufferPtr, _ddcOutCapacity);
+
+                if (outLen <= 0)
+                    continue;
+
+                // per-mast AGC before fifo write
+                mast.Agc.Process(_ddcOutBufferPtr, outLen);
+
+                // Keep at most ~1 second buffered (avoid runaway latency)
+                if (mast.Fifo.Length < (int)(samplerate / Math.Max(1, mast.Downconverter.Decimation)))
+                    mast.Fifo.Write(_ddcOutBufferPtr, outLen);
+                else
+                    mast.LostBuffers++;
+            }
         }
 
         private void AutomaticFrequencyControl(float* buffer, int length)
@@ -457,7 +540,7 @@ namespace SDRSharp.Tetra
             _decodingThread.Start();
 
             _audioProcessor.Enabled = true;
-            _needDisplayBufferUpdate = true;
+            _needDisplayBufferUpdate = _tetraSettings != null && _tetraSettings.ShowDiagram;
         }
 
         private void DecoderStop()
@@ -500,24 +583,36 @@ namespace SDRSharp.Tetra
             };
             while (this._decodingIsStarted)
             {
-                if ((_radioFifoBuffer == null) || (_radioFifoBuffer.Length < SamplesPerBurst) || (_iqSamplerate == 0))
+                if (_masts == null || _masts.Count == 0 || _iqSamplerate == 0)
                 {
                     Thread.Sleep(10);
                     continue;
                 }
 
-                burst.Mode = this._tetraMode;
+                var didWork = false;
 
-                ///@todo CRITICAL PENDING
-                ///Original
-                ///_radioFifoBuffer.Read(_iqBufferPtr, SamplesPerBurst);
-                ///_demodulator.ProcessBuffer(burst, _iqBufferPtr, _symbolsBufferPtr);
-                ///SamplesPerBurst 255 *4 -> 1020
-                ///BurstLengthBits -> 510
-                ///Con 1024 no encuentra los paquetes!!!
+                for (int mi = 0; mi < _masts.Count; mi++)
+                {
+                    var mast = _masts[mi];
+                    if (mast == null || mast.Config == null || !mast.Config.Enabled)
+                        continue;
 
-                this._radioFifoBuffer.Read(this._iqBufferPtr, BurstLengthBits);
-                this._demodulator.ProcessBuffer(burst, this._iqBufferPtr, this._iqSamplerate, BurstLengthBits, this._symbolsBufferPtr);
+                    if (mast.Fifo == null || mast.Fifo.Length < BurstLengthBits)
+                        continue;
+
+                    didWork = true;
+
+                    burst.Mode = _tetraMode;
+
+                    // Read one burst worth of decimated IQ for this mast
+                    mast.Fifo.Read(_iqBufferPtr, BurstLengthBits);
+
+                    // Output sample rate after downconversion/decimation
+                    double sr = _iqSamplerate / Math.Max(1, mast.Downconverter != null ? mast.Downconverter.Decimation : 1);
+
+                    ///@todo CRITICAL PENDING
+                    mast.Demod.ProcessBuffer(burst, _iqBufferPtr, sr, BurstLengthBits, _symbolsBufferPtr);
+
                 /// END CRITICAL
 
                 if (burst.Type == BurstType.WaitBurst)
@@ -527,63 +622,75 @@ namespace SDRSharp.Tetra
 
                 if (_tetraSettings.UdpEnabled)
                 {
-                    server.SendAsync(ConvertAngleToDiBits(_symbolsBufferPtr, BurstLengthSymbols), BurstLengthBits);
+                    var rented = ArrayPool<byte>.Shared.Rent(BurstLengthSymbols * 2);
+                    ConvertAngleToDiBits(_symbolsBufferPtr, BurstLengthSymbols, rented);
+                    server.Send(rented, BurstLengthBits);
+                    ArrayPool<byte>.Shared.Return(rented);
                 }
 
-                var audioChannel = this._decoder.Process(burst, this._outAudioBufferPtr);
+                                    if (mi == _activeMastIndex)
+                    {
+                        var audioChannel = mast.Decoder.Process(burst, _outAudioBufferPtr);
+                        
+                                        _tetraMode = mast.Decoder.TetraMode;
+                        
+                                        if (_needDisplayBufferUpdate)// && mast.Decoder.HaveErrors)
+                                        {
+                                            _needDisplayBufferUpdate = false;
+                        
+                                            Utils.Memcpy(_displayBufferPtr, _symbolsBufferPtr, _displayBuffer.Length * sizeof(float));
+                        
+                                            _dispayBufferReady = true;
+                                        }
+                        
+                                        if (audioChannel == 0 || _audioSamplerate == 0) continue;
+                        
+                                        if (audioSamplerate != _audioSamplerate)
+                                        {
+                                            audioSamplerate = _audioSamplerate;
+                                            _audioResampler = new Resampler(8000, audioSamplerate);
+                        
+                                            _resampledAudio = UnsafeBuffer.Create((int)audioSamplerate, sizeof(float));
+                                            _resampledAudioPtr = (float*)_resampledAudio;
+                                        }
+                        
+                                        switch (audioChannel)
+                                        {
+                                            case 1:
+                                                _ch1IsActive = true;
+                                                _activeCounter1 = ChannelActiveDelay;
+                                                if (!_channel1Listen) continue;
+                                                break;
+                                            case 2:
+                                                _ch2IsActive = true;
+                                                _activeCounter2 = ChannelActiveDelay;
+                                                if (!_channel2Listen) continue;
+                                                break;
+                                            case 3:
+                                                _ch3IsActive = true;
+                                                _activeCounter3 = ChannelActiveDelay;
+                                                if (!_channel3Listen) continue;
+                                                break;
+                                            case 4:
+                                                _ch4IsActive = true;
+                                                _activeCounter4 = ChannelActiveDelay;
+                                                if (!_channel4Listen) continue;
+                                                break;
+                                        }
+                                        //resample buffer
+                                        var audioLength = _audioResampler.Process(_outAudioBufferPtr, _resampledAudioPtr, _outAudioBuffer.Length);
+                                        //Clone to stereo
+                                        // audioLength = MonoToStereo(_resampledAudioPtr, audioLength);
+                                        // Copy to output fifo
+                                        _audioStreamChannel.Write(_resampledAudioPtr, audioLength);
+                        
+                    }
+                }
 
-                _tetraMode = _decoder.TetraMode;
-
-                if (_needDisplayBufferUpdate)// && _decoder.HaveErrors)
+                if (!didWork)
                 {
-                    _needDisplayBufferUpdate = false;
-
-                    Utils.Memcpy(_displayBufferPtr, _symbolsBufferPtr, _displayBuffer.Length * sizeof(float));
-
-                    _dispayBufferReady = true;
+                    Thread.Sleep(5);
                 }
-
-                if (audioChannel == 0 || _audioSamplerate == 0) continue;
-
-                if (audioSamplerate != _audioSamplerate)
-                {
-                    audioSamplerate = _audioSamplerate;
-                    _audioResampler = new Resampler(8000, audioSamplerate);
-
-                    _resampledAudio = UnsafeBuffer.Create((int)audioSamplerate, sizeof(float));
-                    _resampledAudioPtr = (float*)_resampledAudio;
-                }
-
-                switch (audioChannel)
-                {
-                    case 1:
-                        _ch1IsActive = true;
-                        _activeCounter1 = ChannelActiveDelay;
-                        if (!_channel1Listen) continue;
-                        break;
-                    case 2:
-                        _ch2IsActive = true;
-                        _activeCounter2 = ChannelActiveDelay;
-                        if (!_channel2Listen) continue;
-                        break;
-                    case 3:
-                        _ch3IsActive = true;
-                        _activeCounter3 = ChannelActiveDelay;
-                        if (!_channel3Listen) continue;
-                        break;
-                    case 4:
-                        _ch4IsActive = true;
-                        _activeCounter4 = ChannelActiveDelay;
-                        if (!_channel4Listen) continue;
-                        break;
-                }
-                //resample buffer
-                var audioLength = _audioResampler.Process(_outAudioBufferPtr, _resampledAudioPtr, _outAudioBuffer.Length);
-                //Clone to stereo
-                // audioLength = MonoToStereo(_resampledAudioPtr, audioLength);
-                // Copy to output fifo
-                _audioStreamChannel.Write(_resampledAudioPtr, audioLength);
-
             }
 
             _iqBuffer.Dispose();
@@ -612,9 +719,9 @@ namespace SDRSharp.Tetra
             }
         }
 
-        private byte[] ConvertAngleToDiBits(float* angles, int sourceLength)
+        private void ConvertAngleToDiBits(float* angles, int sourceLength, byte[] bitsBuffer)
         {
-            var bitsBuffer = new byte[sourceLength * 2];
+            // bitsBuffer must be at least sourceLength*2 bytes.
             float delta;
             int indexout = 0;
 
@@ -626,7 +733,6 @@ namespace SDRSharp.Tetra
                 bitsBuffer[indexout++] = Math.Abs(delta) > PiDivTwo ? (byte)1 : (byte)0;
             }
 
-            return bitsBuffer;
         }
 
         private int MonoToStereo(float* buffer, int monoLength)
@@ -934,6 +1040,11 @@ namespace SDRSharp.Tetra
 
                 _sysInfo.TryGetValue(GlobalNames.Location_Area, ref _currentCell_LA);
 
+                // Cache number of SCCH on MCCH (SDRtetra: NumOfSCCH_on_MCCH)
+                int nCommonSc = -1;
+                if (_sysInfo.TryGetValue(GlobalNames.NumberOfCommon_SC, ref nCommonSc))
+                    _numCommonScchCached = nCommonSc;
+
                 var band = 0;
                 var offset = 0;
                 var carrier = 0;
@@ -955,14 +1066,40 @@ namespace SDRSharp.Tetra
 
         private void MarkerTimer_Tick(object sender, EventArgs e)
         {
+// Reset UI state when tuning to a new frequency (prevents showing MCCH/SCCH from previous carrier)
+long freqHz = _controlInterface != null ? _controlInterface.Frequency : 0;
+if (_lastUiFrequencyHz < 0)
+{
+    _lastUiFrequencyHz = freqHz;
+}
+else if (Math.Abs(freqHz - _lastUiFrequencyHz) > 100) // >100 Hz change = retune
+{
+    ResetDecoder();
+    _numCommonScchCached = -1;
+    _lastUiFrequencyHz = freqHz;
+    UpdateTimeslotRoleLabels();
+}
+
+
             if (_displayBuffer != null)
             {
-                if (_dispayBufferReady)
+                bool showDiagram = (_tetraSettings != null) && _tetraSettings.ShowDiagram;
+
+                // Keep the control visibility in sync (also handles runtime toggles).
+                if (display.Visible != showDiagram)
+                    display.Visible = showDiagram;
+
+                if (showDiagram && _dispayBufferReady)
                 {
                     _dispayBufferReady = false;
                     display.Perform(_displayBufferPtr, _displayBuffer.Length);
-                    display.Refresh();
+                    // Invalidate is cheaper than forcing an immediate synchronous redraw.
+                    display.Invalidate();
                     _needDisplayBufferUpdate = true;
+                }
+                else if (!showDiagram)
+                {
+                    _needDisplayBufferUpdate = false;
                 }
             }
 
@@ -984,6 +1121,8 @@ namespace SDRSharp.Tetra
             label8.Text = (_currentCellLoad[1].Type == 1 ? "g " : "") + _currentCellLoad[1].GroupName;
             label7.Text = (_currentCellLoad[2].Type == 1 ? "g " : "") + _currentCellLoad[2].GroupName;
             label6.Text = (_currentCellLoad[3].Type == 1 ? "g " : "") + _currentCellLoad[3].GroupName;
+
+            UpdateTimeslotRoleLabels();
 
             _activeCounter1--;
             if (_activeCounter1 < 0)
@@ -1081,6 +1220,11 @@ namespace SDRSharp.Tetra
                 mncLabel.Text = "MNC:" + _currentCell_MNC.ToString();
                 colorLabel.Text = "Color:" + _currentCell_CC.ToString();
                 connectLabel.Visible = _decoder.BurstReceived;
+                var carrierIndex = (_mainCell_Carrier >= 0 && _currentCell_Carrier >= 0) ? (_currentCell_Carrier - _mainCell_Carrier) : 0;
+                var receivedPct = 100.0f - _decoder.Mer;
+                if (receivedPct < 0) receivedPct = 0;
+                if (receivedPct > 100) receivedPct = 100;
+                connectLabel.Text = string.Format("Received  {0:0.00}% [{1}]", receivedPct, carrierIndex);
                 laLabel.Text = "LA:" + _currentCell_LA.ToString();
                 mainCarrierLabel.Text = _mainCell_Carrier.ToString();
                 mainFrequencyLinkLabel.Text = string.Format("{0:0,0.000###} MHz", _mainCell_Frequency * 0.000001m);
@@ -1112,6 +1256,8 @@ namespace SDRSharp.Tetra
         private void TimerGui_Tick(object sender, EventArgs e)
         {
             label11.Text = _lostBuffers.ToString();
+
+            RefreshMastGridStatus();
 
             if (_decoder != null)
             {
@@ -1185,6 +1331,89 @@ namespace SDRSharp.Tetra
             }
         }
 
+
+private void UpdateTimeslotRoleLabels()
+        {
+            // SDRtetra behaviour:
+            // - Only show MCCH/SCCH mapping when we are tuned to the MAIN carrier (carrier index 0).
+            // - On non-main carriers, treat all timeslots as traffic (no MCCH/SCCH).
+            // - "Received" carrier index is (CurrentCarrier - MainCarrier).
+            // - Show "cX" in the ISSI column for traffic slots (like SDRtetra screenshot).
+
+            int carrierIndex = (_mainCell_Carrier >= 0 && _currentCell_Carrier >= 0) ? (_currentCell_Carrier - _mainCell_Carrier) : 0;
+            bool onMainCarrier = (carrierIndex == 0);
+
+            int nScch = _numCommonScchCached;
+            if (nScch < 0) nScch = 0;
+
+            string RoleForTs(int ts)
+            {
+                if (!onMainCarrier)
+                    return "---";
+
+                if (ts == 1)
+                    return "MCCH";
+
+                if (nScch > 0 && ts >= 2 && ts <= (1 + nScch))
+                    return "SCCH " + (ts - 1);
+
+                return "---";
+            }
+
+            string role1 = _ch1IsActive ? "TCH" : RoleForTs(1);
+            string role2 = _ch2IsActive ? "TCH" : RoleForTs(2);
+            string role3 = _ch3IsActive ? "TCH" : RoleForTs(3);
+            string role4 = _ch4IsActive ? "TCH" : RoleForTs(4);
+
+            // keep selection labels compact
+            ch1RadioButton.Text = "Timeslot 1";
+            ch2RadioButton.Text = "Timeslot 2";
+            ch3RadioButton.Text = "Timeslot 3";
+            ch4RadioButton.Text = "Timeslot 4";
+
+            // GSSI column (MCCH/SCCH/TCH/---)
+            label6.Text = role1;
+            label7.Text = role2;
+            label8.Text = role3;
+            label9.Text = role4;
+
+            // ISSI column shows carrier for traffic slots (and for active calls)
+            string carrierTag = "c" + carrierIndex;
+
+            bool TsIsTraffic(int ts)
+            {
+                if (!onMainCarrier) return true; // all slots are traffic-ish when not on main carrier
+                if (ts == 1) return false; // MCCH
+                if (nScch > 0 && ts >= 2 && ts <= (1 + nScch)) return false; // SCCH
+                return true; // remaining are traffic
+            }
+
+            label1.Text = (TsIsTraffic(1) ? carrierTag : string.Empty);
+            label2.Text = (TsIsTraffic(2) ? carrierTag : string.Empty);
+            label3.Text = (TsIsTraffic(3) ? carrierTag : string.Empty);
+            label4.Text = (TsIsTraffic(4) ? carrierTag : string.Empty);
+        }
+
+private static string GetRoleText(int timeslot, int nCommonSc, bool isActive)
+{
+    if (isActive)
+        return "TCH";
+
+    if (timeslot == 1)
+        return "MCCH";
+
+    if (nCommonSc > 0)
+    {
+        int lastScchTs = 1 + nCommonSc; // TS2..TS(lastScchTs)
+        if (timeslot >= 2 && timeslot <= lastScchTs)
+            return "SCCH" + (timeslot - 1);
+    }
+
+    return "---";
+}
+
+
+
         private void Ch1RadioButton_CheckedChanged(object sender, EventArgs e)
         {
             _channel1Listen = ch1RadioButton.Checked;
@@ -1236,9 +1465,67 @@ namespace SDRSharp.Tetra
             UpdateGlobals();
         }
 
+        private void MastButton_Click(object sender, EventArgs e)
+        {
+            if (_tetraSettings == null)
+                return;
+
+            if (_tetraSettings.Masts == null)
+                _tetraSettings.Masts = new System.Collections.Generic.List<MastConfig>();
+
+            var list = new BindingList<MastConfig>(_tetraSettings.Masts);
+
+            using (var dlg = new MastManagerForm(list))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK)
+                    return;
+            }
+
+            // Rebuild receivers
+            _tetraSettings.Masts = list.ToList();
+
+            var oldActive = _activeMastIndex;
+            if (oldActive < 0) oldActive = 0;
+
+            _masts = new System.Collections.Generic.List<MastReceiver>();
+            foreach (var mc in _tetraSettings.Masts)
+            {
+                var r = new MastReceiver(mc, this);
+                _masts.Add(r);
+            }
+
+            _activeMastIndex = Math.Min(oldActive, Math.Max(0, _masts.Count - 1));
+            for (int i = 0; i < _masts.Count; i++)
+                _masts[i].ListenAudio = (i == _activeMastIndex);
+
+            // Rewire UI events to active mast decoder
+            _decoder = (_masts.Count > 0) ? _masts[_activeMastIndex].Decoder : _decoder;
+
+            RebindMastGridRows();
+
+            // Persist immediately so list survives restart
+            SaveSettings();
+        }
+
+
         private void UpdateGlobals()
         {
             Global.IgnoreEncryptedSpeech = _tetraSettings.IgnoreEncodedSpeech;
+
+            // Apply UI-related settings immediately.
+            try
+            {
+                display.Visible = _tetraSettings.ShowDiagram;
+                if (!_tetraSettings.ShowDiagram)
+                {
+                    _needDisplayBufferUpdate = false;
+                    _dispayBufferReady = false;
+                }
+            }
+            catch
+            {
+                // Ignore if UI control not yet created.
+            }
         }
 
         private void BlockNumericUpDown_ValueChanged(object sender, EventArgs e)
@@ -1705,6 +1992,29 @@ namespace SDRSharp.Tetra
                 _cmceData.RemoveAt(0);
 
             _cmceData.Add(data);
+        }
+        private sealed class MastGridRow : INotifyPropertyChanged
+        {
+            public event PropertyChangedEventHandler PropertyChanged;
+
+            public int Index { get; set; }
+
+            private bool _enabled;
+            public bool Enabled { get => _enabled; set { _enabled = value; OnChanged(nameof(Enabled)); } }
+
+            private bool _active;
+            public bool Active { get => _active; set { _active = value; OnChanged(nameof(Active)); } }
+
+            private string _name;
+            public string Name { get => _name; set { _name = value; OnChanged(nameof(Name)); } }
+
+            private double _frequencyMHz;
+            public double FrequencyMHz { get => _frequencyMHz; set { _frequencyMHz = value; OnChanged(nameof(FrequencyMHz)); } }
+
+            private string _status;
+            public string Status { get => _status; set { _status = value; OnChanged(nameof(Status)); } }
+
+            private void OnChanged(string prop) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));
         }
     }
 }

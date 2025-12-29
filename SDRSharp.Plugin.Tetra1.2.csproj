@@ -1,17 +1,19 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net7.0-windows</TargetFramework>
-    <Platforms>AnyCPU</Platforms>
+    <Platforms>x86</Platforms>
+    <PlatformTarget>x86</PlatformTarget>
     <UseWindowsForms>true</UseWindowsForms>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AssemblyName>SDRSharp.Plugin.Tetra</AssemblyName>
     <RootNamespace>SDRSharp.Plugin.Tetra</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x86'">
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <WarningLevel>0</WarningLevel>
     <DebugType>full</DebugType>
@@ -20,7 +22,7 @@
     <OutputPath>..\Debug\</OutputPath>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x86'">
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
@@ -53,6 +55,34 @@
       <HintPath>lib\native\x86\SDRSharp.PanView.dll</HintPath>
       <Private>true</Private>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="AudioProcessor.cs" />
+    <Compile Include="D_AuthenticationPduSubType.cs" />
+    <Compile Include="D_OtarPduSubType.cs" />
+    <Compile Include="DdcDownconverter.cs" />
+    <Compile Include="DialogConfigure.cs" />
+    <Compile Include="DialogConfigure.designer.cs" />
+    <Compile Include="Display.cs" />
+    <Compile Include="Global.cs" />
+    <Compile Include="IFProcessor.cs" />
+    <Compile Include="InternalClasses.cs" />
+    <Compile Include="MastManagerForm.cs" />
+    <Compile Include="MastReceiver.cs" />
+    <Compile Include="MmPduType.cs" />
+    <Compile Include="NativeMethods.cs" />
+    <Compile Include="NetInfoWindow.cs" />
+    <Compile Include="NetworkTime.cs" />
+    <Compile Include="SettingsPersister.cs" />
+    <Compile Include="SimpleAgc.cs" />
+    <Compile Include="SortableBindingList.cs" />
+    <Compile Include="TetraDecoder.cs" />
+    <Compile Include="TetraPanel.Designer.cs" />
+    <Compile Include="TetraPanel.cs" />
+    <Compile Include="TetraPlugin.cs" />
+    <Compile Include="TetraUtils.cs" />
+    <Compile Include="U_OtarPduSubType.cs" />
   </ItemGroup>
 
 </Project>

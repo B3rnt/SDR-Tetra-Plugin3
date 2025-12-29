@@ -47,6 +47,7 @@
             this.mncLabel = new System.Windows.Forms.Label();
             this.mccLabel = new System.Windows.Forms.Label();
             this.configButton = new System.Windows.Forms.Button();
+            this.mastButton = new System.Windows.Forms.Button();
             this.groupBox1 = new System.Windows.Forms.GroupBox();
             this.label12 = new System.Windows.Forms.Label();
             this.blockNumericUpDown = new System.Windows.Forms.NumericUpDown();
@@ -110,6 +111,7 @@
             this.groupBox2.Controls.Add(this.colorLabel);
             this.groupBox2.Controls.Add(this.mncLabel);
             this.groupBox2.Controls.Add(this.mccLabel);
+            this.groupBox2.Controls.Add(this.mastButton);
             this.groupBox2.Controls.Add(this.configButton);
             this.groupBox2.Controls.Add(this.groupBox1);
             this.groupBox2.Controls.Add(this.displayGroupBox);
@@ -270,6 +272,17 @@
             this.configButton.Text = "Config";
             this.configButton.UseVisualStyleBackColor = true;
             this.configButton.Click += new System.EventHandler(this.ConfigButton_Click);
+
+            // 
+            // mastButton
+            // 
+            this.mastButton.Location = new System.Drawing.Point(6, 128);
+            this.mastButton.Name = "mastButton";
+            this.mastButton.Size = new System.Drawing.Size(69, 23);
+            this.mastButton.TabIndex = 67;
+            this.mastButton.Text = "Masts";
+            this.mastButton.UseVisualStyleBackColor = true;
+            this.mastButton.Click += new System.EventHandler(this.MastButton_Click);
             // 
             // groupBox1
             // 
@@ -333,7 +346,7 @@
             this.gssiLabel.Name = "gssiLabel";
             this.gssiLabel.Size = new System.Drawing.Size(20, 13);
             this.gssiLabel.TabIndex = 71;
-            this.gssiLabel.Text = "To";
+            this.gssiLabel.Text = "GSSI";
             // 
             // label6
             // 
@@ -341,7 +354,7 @@
             this.label6.Name = "label6";
             this.label6.Size = new System.Drawing.Size(85, 13);
             this.label6.TabIndex = 70;
-            this.label6.Text = "0";
+            this.label6.Text = "---";
             // 
             // label7
             // 
@@ -349,7 +362,7 @@
             this.label7.Name = "label7";
             this.label7.Size = new System.Drawing.Size(85, 13);
             this.label7.TabIndex = 69;
-            this.label7.Text = "0";
+            this.label7.Text = "---";
             // 
             // label8
             // 
@@ -357,7 +370,7 @@
             this.label8.Name = "label8";
             this.label8.Size = new System.Drawing.Size(85, 13);
             this.label8.TabIndex = 68;
-            this.label8.Text = "0";
+            this.label8.Text = "---";
             // 
             // label9
             // 
@@ -365,7 +378,7 @@
             this.label9.Name = "label9";
             this.label9.Size = new System.Drawing.Size(85, 13);
             this.label9.TabIndex = 67;
-            this.label9.Text = "0";
+            this.label9.Text = "---";
             // 
             // issiLabel
             // 
@@ -374,7 +387,7 @@
             this.issiLabel.Name = "issiLabel";
             this.issiLabel.Size = new System.Drawing.Size(30, 13);
             this.issiLabel.TabIndex = 65;
-            this.issiLabel.Text = "From";
+            this.issiLabel.Text = "ISSI";
             // 
             // label4
             // 
@@ -382,7 +395,7 @@
             this.label4.Name = "label4";
             this.label4.Size = new System.Drawing.Size(64, 13);
             this.label4.TabIndex = 64;
-            this.label4.Text = "0";
+            this.label4.Text = "";
             // 
             // label3
             // 
@@ -390,7 +403,7 @@
             this.label3.Name = "label3";
             this.label3.Size = new System.Drawing.Size(64, 13);
             this.label3.TabIndex = 63;
-            this.label3.Text = "0";
+            this.label3.Text = "";
             // 
             // label2
             // 
@@ -398,7 +411,7 @@
             this.label2.Name = "label2";
             this.label2.Size = new System.Drawing.Size(64, 13);
             this.label2.TabIndex = 62;
-            this.label2.Text = "0";
+            this.label2.Text = "";
             // 
             // label1
             // 
@@ -406,7 +419,7 @@
             this.label1.Name = "label1";
             this.label1.Size = new System.Drawing.Size(64, 13);
             this.label1.TabIndex = 61;
-            this.label1.Text = "0";
+            this.label1.Text = "";
             // 
             // autoCheckBox
             // 
@@ -583,7 +596,8 @@
         private System.Windows.Forms.Label label1;
         private System.Windows.Forms.Label issiLabel;
         private System.Windows.Forms.Button configButton;
-        private System.Windows.Forms.Label gssiLabel;
+                private System.Windows.Forms.Button mastButton;
+private System.Windows.Forms.Label gssiLabel;
         private System.Windows.Forms.Label label6;
         private System.Windows.Forms.Label label7;
         private System.Windows.Forms.Label label8;

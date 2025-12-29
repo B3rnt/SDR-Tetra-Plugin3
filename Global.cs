@@ -5,6 +5,16 @@ using System.Runtime.CompilerServices;
 
 namespace SDRSharp.Tetra
 {
+    /// <summary>
+    /// Runtime cache for values broadcast in SYSINFO (MAC) but used when logging
+    /// other layers (e.g. MM). SDRtetra prints a cached LA for MM lines.
+    /// </summary>
+    public static class TetraRuntime
+    {
+        public static int CurrentLocationArea = -1;
+        public static int NumberOfCommonSC = -1;
+    }
+
     public enum GlobalNames
     {
         Data_Separator = 0,
@@ -305,6 +315,11 @@ namespace SDRSharp.Tetra
         Group_identity_acknowledgement_request,
         Group_identity_accept_reject,
         Group_identity_attach_detach_mode,
+        CCK_id,
+        Authentication_status,
+        // Internal helper flags (safe to add at end of enum)
+        GSSI_verified,
+        ITSI_attach,
         End // Always must be here
 
     }
@@ -981,6 +996,13 @@ namespace SDRSharp.Tetra
     }
     public class TetraSettings
     {
+        public TetraSettings()
+        {
+            // Defaults. XmlSerializer will call this constructor and then set values present in the XML.
+            // This means newly added settings keep a sensible default when opening an older settings file.
+            ShowDiagram = true;
+        }
+
         public string LogFileNameRules { get; set; }
 
         public string LogWriteFolder { get; set; }
@@ -1006,5 +1028,33 @@ namespace SDRSharp.Tetra
         public int UdpPort { get; set; }
 
         public bool AfcDisabled { get; set; }
+
+        public bool MmOnlyMode { get; set; }
+
+        /// <summary>
+        /// Show the live symbol/diagram display in the GUI.
+        /// </summary>
+                /// <summary>
+        /// List of configured base stations (carriers) to monitor within the current SDR bandwidth.
+        /// </summary>
+                /// <summary>
+        /// List of configured base stations (carriers) to monitor within the current SDR bandwidth.
+        /// </summary>
+        public List<MastConfig> Masts { get; set; } = new List<MastConfig>();
+
+set; } = new System.Collections.Generic.List<MastConfig>();
+
+public bool ShowDiagram { get; set; }
+    }
+    public class MastConfig
+    {
+        public string Name { get; set; } = "Mast";
+        public long FrequencyHz { get; set; }
+        public bool Enabled { get; set; } = true;
+
+        // Optional per-mast AGC tuning
+        public float AgcTargetRms { get; set; } = 0.25f;
+        public float AgcAttack { get; set; } = 0.01f;
+        public float AgcDecay { get; set; } = 0.001f;
     }
 }

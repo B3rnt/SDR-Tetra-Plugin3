@@ -18,6 +18,8 @@ namespace SDRSharp.Tetra
             enableUdpOutputCheckBox.Checked = _tetraSettings.UdpEnabled;
             udpPortNumericUpDown.Value = _tetraSettings.UdpPort;
             afcCheckBox.Checked = _tetraSettings.AfcDisabled;
+            mmOnlyModeCheckBox.Checked = _tetraSettings.MmOnlyMode;
+            showDiagramCheckBox.Checked = _tetraSettings.ShowDiagram;
 
             logFolderBrowserDialog.SelectedPath = _tetraSettings.LogWriteFolder;
             logFileRulesTextBox.Text = _tetraSettings.LogFileNameRules;
@@ -41,6 +43,8 @@ namespace SDRSharp.Tetra
             _tetraSettings.UdpPort = (int)udpPortNumericUpDown.Value;
 
             _tetraSettings.AfcDisabled = afcCheckBox.Checked;
+            _tetraSettings.MmOnlyMode = mmOnlyModeCheckBox.Checked;
+            _tetraSettings.ShowDiagram = showDiagramCheckBox.Checked;
 
             DialogResult = DialogResult.OK;
         }
