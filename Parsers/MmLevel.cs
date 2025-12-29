@@ -5,36 +5,6 @@ namespace SDRSharp.Tetra
 {
     unsafe class MmLevel
     {
-
-[ThreadStatic]
-private static StringBuilder _sbCache;
-
-private static StringBuilder AcquireStringBuilder(int capacity)
-{
-    var sb = _sbCache;
-    if (sb == null)
-        return new StringBuilder(capacity);
-
-    _sbCache = null;
-    sb.Clear();
-    if (sb.Capacity < capacity)
-        sb.Capacity = capacity;
-    return sb;
-}
-
-private static void ReleaseStringBuilder(StringBuilder sb)
-{
-    if (sb == null) return;
-
-    // Keep only reasonably sized builders to avoid holding large buffers forever.
-    if (sb.Capacity <= 4096)
-    {
-        sb.Clear();
-        _sbCache = sb;
-    }
-}
-        private static readonly char[] Hex = "0123456789ABCDEF".ToCharArray();
-
         private readonly Rules[] _locationUpdateAcceptRules = new Rules[]
         {
             new Rules(GlobalNames.Location_update_accept_type, 3, RulesType.Direct, 0, 0, 0),
@@ -413,6 +383,41 @@ private static void ReleaseStringBuilder(StringBuilder sb)
 
     internal static unsafe class MmLogger
     {
+
+        [ThreadStatic]
+        private static StringBuilder _sbCache;
+        private const int SbCacheMaxCapacity = 8192;
+        private static readonly char[] Hex = "0123456789ABCDEF".ToCharArray();
+
+        private static StringBuilder AcquireStringBuilder(int capacity)
+        {
+            var sb = _sbCache;
+            if (sb == null)
+                return new StringBuilder(capacity);
+
+            _sbCache = null;
+            sb.Clear();
+            if (sb.Capacity < capacity)
+                sb.Capacity = capacity;
+            return sb;
+        }
+
+        private static string GetStringAndRelease(StringBuilder sb)
+        {
+            if (sb == null) return string.Empty;
+            var s = sb.ToString();
+            ReleaseStringBuilder(sb);
+            return s;
+        }
+
+        private static void ReleaseStringBuilder(StringBuilder sb)
+        {
+            if (sb == null) return;
+            // keep cache bounded
+            if (sb.Capacity <= SbCacheMaxCapacity)
+                _sbCache = sb;
+        }
+
         private const string DefaultPath = "mm_messages.log";
 
         private static int _lastAuthStatus = -1;
