@@ -513,6 +513,24 @@ namespace SDRSharp.Tetra
                 case 0:
                     //Debug.Write(" Broadcast_PDU");
                     offset = Global.ParseParams(channelData, offset, _sysInfoRules, result);
+
+                    // Cache LA globally (MM PDUs don't repeat LA; SDRtetra prints cached LA)
+                    try
+                    {
+                        int la = result.Value(GlobalNames.Location_Area);
+                        if (la > 0)
+                            TetraRuntime.CurrentLocationArea = la;
+                    }
+                    catch { }
+
+// Cache NumberOfCommon_SC globally (used for SCCH labeling in GUI)
+try
+{
+    int nsc = result.Value(GlobalNames.NumberOfCommon_SC);
+    if (nsc >= 0)
+        TetraRuntime.NumberOfCommonSC = nsc;
+}
+catch { }
                     break;
             }
 

@@ -1031,26 +1031,27 @@ namespace SDRSharp.Tetra
 
         public bool MmOnlyMode { get; set; }
 
-	        /// <summary>
-	        /// Show the live symbol/diagram display in the GUI.
-	        /// </summary>
-	        public bool ShowDiagram { get; set; }
+        /// <summary>
+        /// Show the live symbol/diagram display in the GUI.
+        /// </summary>
+        public bool ShowDiagram { get; set; }
 
-	        /// <summary>
-	        /// List of configured base stations (carriers) to monitor within the current SDR bandwidth.
-	        /// </summary>
-	        public List<MastConfig> Masts { get; set; } = new List<MastConfig>();
-	    }
+        /// <summary>
+        /// Configured mast (site) frequencies inside the current SDR bandwidth.
+        /// </summary>
+        public List<MastConfig> Masts { get; set; } = new List<MastConfig>();
+    }
 
-	    public class MastConfig
-	    {
-	        public string Name { get; set; } = "Mast";
-	        public long FrequencyHz { get; set; }
-	        public bool Enabled { get; set; } = true;
+    public class MastConfig
+    {
+        public string Name { get; set; } = "Mast";
+        public long FrequencyHz { get; set; }
+        public bool Enabled { get; set; } = true;
 
-	        // Optional per-mast AGC tuning
-	        public float AgcTargetRms { get; set; } = 0.25f;
-	        public float AgcAttack { get; set; } = 0.01f;
-	        public float AgcDecay { get; set; } = 0.001f;
-	    }
+        // Optional per-mast settings for later expansion
+        public bool AfcDisabled { get; set; } = false;
+        public bool MmOnlyMode { get; set; } = false;
+
+        public override string ToString() => $"{Name} ({FrequencyHz/1e6:0.000000} MHz)";
+    }
 }

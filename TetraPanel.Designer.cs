@@ -47,7 +47,6 @@
             this.mncLabel = new System.Windows.Forms.Label();
             this.mccLabel = new System.Windows.Forms.Label();
             this.configButton = new System.Windows.Forms.Button();
-            this.mastButton = new System.Windows.Forms.Button();
             this.groupBox1 = new System.Windows.Forms.GroupBox();
             this.label12 = new System.Windows.Forms.Label();
             this.blockNumericUpDown = new System.Windows.Forms.NumericUpDown();
@@ -111,7 +110,6 @@
             this.groupBox2.Controls.Add(this.colorLabel);
             this.groupBox2.Controls.Add(this.mncLabel);
             this.groupBox2.Controls.Add(this.mccLabel);
-            this.groupBox2.Controls.Add(this.mastButton);
             this.groupBox2.Controls.Add(this.configButton);
             this.groupBox2.Controls.Add(this.groupBox1);
             this.groupBox2.Controls.Add(this.displayGroupBox);
@@ -272,17 +270,6 @@
             this.configButton.Text = "Config";
             this.configButton.UseVisualStyleBackColor = true;
             this.configButton.Click += new System.EventHandler(this.ConfigButton_Click);
-
-            // 
-            // mastButton
-            // 
-            this.mastButton.Location = new System.Drawing.Point(6, 128);
-            this.mastButton.Name = "mastButton";
-            this.mastButton.Size = new System.Drawing.Size(69, 23);
-            this.mastButton.TabIndex = 67;
-            this.mastButton.Text = "Masts";
-            this.mastButton.UseVisualStyleBackColor = true;
-            this.mastButton.Click += new System.EventHandler(this.MastButton_Click);
             // 
             // groupBox1
             // 
@@ -596,8 +583,7 @@
         private System.Windows.Forms.Label label1;
         private System.Windows.Forms.Label issiLabel;
         private System.Windows.Forms.Button configButton;
-                private System.Windows.Forms.Button mastButton;
-private System.Windows.Forms.Label gssiLabel;
+        private System.Windows.Forms.Label gssiLabel;
         private System.Windows.Forms.Label label6;
         private System.Windows.Forms.Label label7;
         private System.Windows.Forms.Label label8;
