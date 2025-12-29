@@ -229,7 +229,7 @@ namespace SDRSharp.Tetra
 
                 bool markerRecovered = false;
 
-                // UPDATED: bit-aligned scan + STRICT marker (84 8D 40 10) to avoid false positives
+                // bit-aligned scan + STRICT marker + blacklist 164443 to avoid false positives
                 if (TryRecoverNibbleShiftedGssiBefore848D40_BitWindow_Strict(channelData, mmStart + align, MARKER_SCAN_WINDOW_BITS, out int recoveredGssi))
                 {
                     result.SetValue(GlobalNames.GSSI, recoveredGssi);
@@ -327,11 +327,13 @@ namespace SDRSharp.Tetra
             return 0;
         }
 
-        // UPDATED: Marker scan op ELKE bit-offset binnen window + STRICT marker check (84 8D 40 10)
+        // Marker scan op ELKE bit-offset binnen window + STRICT marker (84 8D 40 10) + BLACKLIST (164443)
         private static bool TryRecoverNibbleShiftedGssiBefore848D40_BitWindow_Strict(
             LogicChannel channelData, int scanStartBit, int windowBits, out int gssi)
         {
             gssi = -1;
+
+            const int BLACKLIST_GSSI = 164443;
 
             try
             {
@@ -342,7 +344,6 @@ namespace SDRSharp.Tetra
                 if (scanEnd - scanStart < (8 * 8))
                     return false;
 
-                // loop BIT-voor-BIT zodat we ook niet-byte aligned marker vinden
                 for (int bit = scanStart; bit + (8 * 4) <= scanEnd; bit++)
                 {
                     byte b1 = ReadByteAtBit(channelData, bit + (8 * 0));
@@ -350,10 +351,8 @@ namespace SDRSharp.Tetra
                     byte b3 = ReadByteAtBit(channelData, bit + (8 * 2));
                     byte b4 = ReadByteAtBit(channelData, bit + (8 * 3));
 
-                    // STRICT marker: 84 8D 40 10
                     if (b1 == 0x84 && b2 == 0x8D && b3 == 0x40 && b4 == 0x10)
                     {
-                        // moeten 4 bytes vóór marker kunnen lezen
                         int pBase = bit - (8 * 4);
                         if (pBase < 0) continue;
 
@@ -367,6 +366,10 @@ namespace SDRSharp.Tetra
                             (p2 << 12) |
                             (p1 << 4) |
                             ((p0 >> 4) & 0x0F);
+
+                        // BLACKLIST: bekende vals-positieve waarde -> negeren en doorscannen
+                        if (value == BLACKLIST_GSSI)
+                            continue;
 
                         gssi = value;
                         return true;
@@ -421,7 +424,6 @@ namespace SDRSharp.Tetra
         private static void ReleaseStringBuilder(StringBuilder sb)
         {
             if (sb == null) return;
-            // keep cache bounded
             if (sb.Capacity <= SbCacheMaxCapacity)
                 _sbCache = sb;
         }
@@ -464,7 +466,6 @@ namespace SDRSharp.Tetra
                 int gssiVerified = parsed.Value(GlobalNames.GSSI_verified);
                 int cckId = parsed.Value(GlobalNames.CCK_id);
 
-                // Determine subtype by alignment search (same as parser)
                 int align = 0;
                 try
                 {
@@ -528,7 +529,6 @@ namespace SDRSharp.Tetra
 
                         if (ssi > 0) { sb.Append(" for SSI: "); sb.Append(ssi); }
 
-                        // ITSI attach: only show marker-verified GSSI (==2)
                         if (isItsi)
                         {
                             if (gssiVerified == 2 && gssi > 0)
@@ -578,7 +578,6 @@ namespace SDRSharp.Tetra
                     }
                 }
 
-                // Debug raw only for ITSI attach LU accepts (optional)
                 if (mmType == MmPduType.D_LOCATION_UPDATE_ACCEPT && isItsi)
                 {
                     sb.Append("  raw=");
