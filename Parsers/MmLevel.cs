@@ -228,7 +228,8 @@ namespace SDRSharp.Tetra
                 const int MARKER_SCAN_WINDOW_BITS = 512;
 
                 bool markerRecovered = false;
-                if (TryRecoverNibbleShiftedGssiBefore848D40_AlignedWindow(channelData, mmStart + align, MARKER_SCAN_WINDOW_BITS, out int recoveredGssi))
+                // UPDATED: bit-aligned scan (niet alleen byte-aligned)
+                if (TryRecoverNibbleShiftedGssiBefore848D40_BitWindow(channelData, mmStart + align, MARKER_SCAN_WINDOW_BITS, out int recoveredGssi))
                 {
                     result.SetValue(GlobalNames.GSSI, recoveredGssi);
                     result.SetValue(GlobalNames.GSSI_verified, 2); // marker-verified
@@ -325,33 +326,38 @@ namespace SDRSharp.Tetra
             return 0;
         }
 
-        // Marker scan ONLY on the provided alignedStart (step=8)
-        private static bool TryRecoverNibbleShiftedGssiBefore848D40_AlignedWindow(
-            LogicChannel channelData, int alignedStart, int windowBits, out int gssi)
+        // UPDATED: Marker scan op ELKE bit-offset binnen window (niet alleen byte-aligned)
+        private static bool TryRecoverNibbleShiftedGssiBefore848D40_BitWindow(
+            LogicChannel channelData, int scanStartBit, int windowBits, out int gssi)
         {
             gssi = -1;
 
             try
             {
-                int scanStart = Math.Max(0, alignedStart);
-                int scanEnd = Math.Min(channelData.Length, alignedStart + Math.Max(0, windowBits));
+                int scanStart = Math.Max(0, scanStartBit);
+                int scanEnd = Math.Min(channelData.Length, scanStartBit + Math.Max(0, windowBits));
 
+                // we hebben 3 marker-bytes nodig + 4 bytes ervoor
                 if (scanEnd - scanStart < (8 * 7))
                     return false;
 
-                // alignedStart is already aligned; step in bytes
-                for (int bit = scanStart; bit + (8 * 7) <= scanEnd; bit += 8)
+                // loop BIT-voor-BIT zodat we ook niet-byte aligned marker vinden
+                for (int bit = scanStart; bit + (8 * 3) <= scanEnd; bit++)
                 {
-                    byte b1 = ReadByteAtBit(channelData, bit + (8 * 4));
-                    byte b2 = ReadByteAtBit(channelData, bit + (8 * 5));
-                    byte b3 = ReadByteAtBit(channelData, bit + (8 * 6));
+                    byte b1 = ReadByteAtBit(channelData, bit + (8 * 0));
+                    byte b2 = ReadByteAtBit(channelData, bit + (8 * 1));
+                    byte b3 = ReadByteAtBit(channelData, bit + (8 * 2));
 
                     if (b1 == 0x84 && b2 == 0x8D && b3 == 0x40)
                     {
-                        byte p3 = ReadByteAtBit(channelData, bit + (8 * 0));
-                        byte p2 = ReadByteAtBit(channelData, bit + (8 * 1));
-                        byte p1 = ReadByteAtBit(channelData, bit + (8 * 2));
-                        byte p0 = ReadByteAtBit(channelData, bit + (8 * 3));
+                        // moeten 4 bytes vóór marker kunnen lezen
+                        int pBase = bit - (8 * 4);
+                        if (pBase < 0) continue;
+
+                        byte p3 = ReadByteAtBit(channelData, pBase + (8 * 0));
+                        byte p2 = ReadByteAtBit(channelData, pBase + (8 * 1));
+                        byte p1 = ReadByteAtBit(channelData, pBase + (8 * 2));
+                        byte p0 = ReadByteAtBit(channelData, pBase + (8 * 3));
 
                         int value =
                             ((p3 & 0x0F) << 20) |
@@ -383,7 +389,6 @@ namespace SDRSharp.Tetra
 
     internal static unsafe class MmLogger
     {
-
         [ThreadStatic]
         private static StringBuilder _sbCache;
         private const int SbCacheMaxCapacity = 8192;
