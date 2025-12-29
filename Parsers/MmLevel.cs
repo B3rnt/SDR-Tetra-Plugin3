@@ -228,8 +228,9 @@ namespace SDRSharp.Tetra
                 const int MARKER_SCAN_WINDOW_BITS = 512;
 
                 bool markerRecovered = false;
-                // UPDATED: bit-aligned scan (niet alleen byte-aligned)
-                if (TryRecoverNibbleShiftedGssiBefore848D40_BitWindow(channelData, mmStart + align, MARKER_SCAN_WINDOW_BITS, out int recoveredGssi))
+
+                // UPDATED: bit-aligned scan + STRICT marker (84 8D 40 10) to avoid false positives
+                if (TryRecoverNibbleShiftedGssiBefore848D40_BitWindow_Strict(channelData, mmStart + align, MARKER_SCAN_WINDOW_BITS, out int recoveredGssi))
                 {
                     result.SetValue(GlobalNames.GSSI, recoveredGssi);
                     result.SetValue(GlobalNames.GSSI_verified, 2); // marker-verified
@@ -326,8 +327,8 @@ namespace SDRSharp.Tetra
             return 0;
         }
 
-        // UPDATED: Marker scan op ELKE bit-offset binnen window (niet alleen byte-aligned)
-        private static bool TryRecoverNibbleShiftedGssiBefore848D40_BitWindow(
+        // UPDATED: Marker scan op ELKE bit-offset binnen window + STRICT marker check (84 8D 40 10)
+        private static bool TryRecoverNibbleShiftedGssiBefore848D40_BitWindow_Strict(
             LogicChannel channelData, int scanStartBit, int windowBits, out int gssi)
         {
             gssi = -1;
@@ -337,18 +338,20 @@ namespace SDRSharp.Tetra
                 int scanStart = Math.Max(0, scanStartBit);
                 int scanEnd = Math.Min(channelData.Length, scanStartBit + Math.Max(0, windowBits));
 
-                // we hebben 3 marker-bytes nodig + 4 bytes ervoor
-                if (scanEnd - scanStart < (8 * 7))
+                // marker(4 bytes) + 4 bytes ervoor
+                if (scanEnd - scanStart < (8 * 8))
                     return false;
 
                 // loop BIT-voor-BIT zodat we ook niet-byte aligned marker vinden
-                for (int bit = scanStart; bit + (8 * 3) <= scanEnd; bit++)
+                for (int bit = scanStart; bit + (8 * 4) <= scanEnd; bit++)
                 {
                     byte b1 = ReadByteAtBit(channelData, bit + (8 * 0));
                     byte b2 = ReadByteAtBit(channelData, bit + (8 * 1));
                     byte b3 = ReadByteAtBit(channelData, bit + (8 * 2));
+                    byte b4 = ReadByteAtBit(channelData, bit + (8 * 3));
 
-                    if (b1 == 0x84 && b2 == 0x8D && b3 == 0x40)
+                    // STRICT marker: 84 8D 40 10
+                    if (b1 == 0x84 && b2 == 0x8D && b3 == 0x40 && b4 == 0x10)
                     {
                         // moeten 4 bytes vóór marker kunnen lezen
                         int pBase = bit - (8 * 4);
